@@ -59,7 +59,7 @@ export const ScreenShareSettings = ({
             >
               <div className="font-bold text-sm">🎥 VDO.Ninja</div>
               <div className="text-xs text-text-primary/60 mt-2">
-                Low-latency WebRTC link — ideal for streaming via OBS
+                Embed any VDO.Ninja viewer URL as background
               </div>
             </button>
           </div>
@@ -67,19 +67,25 @@ export const ScreenShareSettings = ({
 
         {config.mode === "vdoninja" && (
           <div className="mb-16">
-            <div className="font-bold mb-4">VDO.Ninja Room ID</div>
+            <div className="font-bold mb-4">VDO.Ninja Viewer URL</div>
             <input
               className="px-16 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8"
               type="text"
-              placeholder="e.g. mystreamroom123"
+              placeholder="https://vdo.ninja/?view=yourRoomID"
               value={config.vdoninjaRoomId || ""}
               onChange={(e) => update({ vdoninjaRoomId: e.target.value })}
             />
-            <div className="text-xs text-text-primary/60 mt-4">
-              The viewer link will be:{" "}
-              <code className="bg-surface3 px-4 rounded text-xs">
-                https://vdo.ninja/?view={config.vdoninjaRoomId || "yourroom"}
-              </code>
+            <div className="text-xs text-text-primary/60 mt-4 leading-relaxed">
+              Paste the <strong>viewer</strong> URL from VDO.Ninja (the <code className="bg-surface3 px-4 rounded">?view=</code> link).
+              The page will embed it as a fullscreen background via iframe.{" "}
+              <a
+                href="https://vdo.ninja"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                Open VDO.Ninja →
+              </a>
             </div>
           </div>
         )}
@@ -88,23 +94,25 @@ export const ScreenShareSettings = ({
           {!config.active ? (
             <button
               onClick={onStart}
-              className="px-24 py-8 bg-primary hover:bg-primary-hover text-white font-bold rounded-oval"
+              disabled={config.mode === "vdoninja" && !config.vdoninjaRoomId?.trim()}
+              className="px-24 py-8 bg-primary hover:bg-primary-hover disabled:bg-primary-disabled text-white font-bold rounded-oval"
             >
-              {config.mode === "vdoninja" ? "Open VDO.Ninja" : "Start Screen Share"}
+              {config.mode === "vdoninja" ? "▶ Start VDO.Ninja Background" : "▶ Start Screen Share"}
             </button>
           ) : (
             <button
               onClick={onStop}
               className="px-24 py-8 bg-secondary hover:bg-secondary-hover text-white font-bold rounded-oval"
             >
-              ✕ Stop / Disconnect
+              ✕ Stop
             </button>
           )}
         </div>
 
         <div className="text-xs text-text-primary/60 mt-12">
-          When active, the background changes to the screen share feed — perfect for streaming.
-          Click Stop to restore the original background.
+          {config.mode === "chrome"
+            ? "The selected screen or window will appear as the background behind your character."
+            : "The VDO.Ninja viewer will be embedded as a fullscreen background. Great for streaming with OBS."}
         </div>
       </div>
     </div>

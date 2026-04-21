@@ -19,12 +19,18 @@ export const ScreenShareBackground = ({ stream, vdoninjaUrl, mode, active }: Pro
   if (!active) return null;
 
   if (mode === "vdoninja" && vdoninjaUrl) {
+    // Use the URL directly — user pastes their own VDO.Ninja viewer link
+    const embedUrl = vdoninjaUrl.includes("?")
+      ? vdoninjaUrl + "&cleanoutput&transparent"
+      : vdoninjaUrl;
+
     return (
       <div className="absolute top-0 left-0 w-screen h-[100svh] -z-20">
         <iframe
-          src={vdoninjaUrl}
+          src={embedUrl}
           className="w-full h-full border-0"
-          allow="camera;microphone;display-capture"
+          allow="camera;microphone;display-capture;autoplay"
+          allowFullScreen
           title="VDO.Ninja Screen Share"
         />
       </div>

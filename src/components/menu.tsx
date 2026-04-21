@@ -9,6 +9,7 @@ import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
 import { ScreenShareConfig } from "@/features/screenShare/screenShare";
 import { AIProviderConfig } from "@/features/chat/aiProviders";
+import { BackgroundConfig } from "@/features/background/backgroundConfig";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -20,6 +21,8 @@ type Props = {
   twitchConfig: TwitchConfig;
   twitchConnected: boolean;
   screenShareConfig: ScreenShareConfig;
+  backgroundConfig: BackgroundConfig;
+  uiVisible: boolean;
   onChangeSystemPrompt: (systemPrompt: string) => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
   onChangeChatLog: (index: number, text: string) => void;
@@ -33,6 +36,7 @@ type Props = {
   onChangeScreenShareConfig: (config: ScreenShareConfig) => void;
   onScreenShareStart: () => void;
   onScreenShareStop: () => void;
+  onChangeBackgroundConfig: (config: BackgroundConfig) => void;
 };
 
 export const Menu = ({
@@ -45,6 +49,8 @@ export const Menu = ({
   twitchConfig,
   twitchConnected,
   screenShareConfig,
+  backgroundConfig,
+  uiVisible,
   onChangeSystemPrompt,
   onChangeAiConfig,
   onChangeChatLog,
@@ -58,6 +64,7 @@ export const Menu = ({
   onChangeScreenShareConfig,
   onScreenShareStart,
   onScreenShareStop,
+  onChangeBackgroundConfig,
 }: Props) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showChatLog, setShowChatLog] = useState(false);
@@ -89,9 +96,17 @@ export const Menu = ({
     [viewer]
   );
 
+  // When settings is open, always show UI
+  const shouldShowUI = uiVisible || showSettings;
+
   return (
     <>
-      <div className="absolute z-10 m-24">
+      {/* Top-left buttons — auto-hide */}
+      <div
+        className={`absolute z-10 m-24 transition-opacity duration-500 ${
+          shouldShowUI ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
         <div className="grid grid-flow-col gap-[8px]">
           <IconButton
             iconName="24/Menu"
@@ -146,6 +161,7 @@ export const Menu = ({
           twitchConfig={twitchConfig}
           twitchConnected={twitchConnected}
           screenShareConfig={screenShareConfig}
+          backgroundConfig={backgroundConfig}
           onClickClose={() => setShowSettings(false)}
           onChangeAiConfig={onChangeAiConfig}
           onChangeSystemPrompt={handleChangeSystemPrompt}
@@ -161,6 +177,7 @@ export const Menu = ({
           onChangeScreenShareConfig={onChangeScreenShareConfig}
           onScreenShareStart={onScreenShareStart}
           onScreenShareStop={onScreenShareStop}
+          onChangeBackgroundConfig={onChangeBackgroundConfig}
         />
       )}
 

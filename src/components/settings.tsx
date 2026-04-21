@@ -2,15 +2,16 @@ import React from "react";
 import { IconButton } from "./iconButton";
 import { TextButton } from "./textButton";
 import { Message } from "@/features/messages/messages";
-import { Link } from "./link";
 import { TTSSettings } from "./ttsSettings";
 import { TwitchSettings } from "./twitchSettings";
 import { ScreenShareSettings } from "./screenShareSettings";
 import { AIProviderSettings } from "./aiProviderSettings";
+import { BackgroundSettings } from "./backgroundSettings";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
 import { ScreenShareConfig } from "@/features/screenShare/screenShare";
 import { AIProviderConfig } from "@/features/chat/aiProviders";
+import { BackgroundConfig } from "@/features/background/backgroundConfig";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -21,6 +22,7 @@ type Props = {
   twitchConfig: TwitchConfig;
   twitchConnected: boolean;
   screenShareConfig: ScreenShareConfig;
+  backgroundConfig: BackgroundConfig;
   onClickClose: () => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
   onChangeSystemPrompt: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -36,6 +38,7 @@ type Props = {
   onChangeScreenShareConfig: (config: ScreenShareConfig) => void;
   onScreenShareStart: () => void;
   onScreenShareStop: () => void;
+  onChangeBackgroundConfig: (config: BackgroundConfig) => void;
 };
 
 export const Settings = ({
@@ -47,6 +50,7 @@ export const Settings = ({
   twitchConfig,
   twitchConnected,
   screenShareConfig,
+  backgroundConfig,
   onClickClose,
   onChangeSystemPrompt,
   onChangeAiConfig,
@@ -62,6 +66,7 @@ export const Settings = ({
   onChangeScreenShareConfig,
   onScreenShareStart,
   onScreenShareStop,
+  onChangeBackgroundConfig,
 }: Props) => {
   return (
     <div className="absolute z-40 w-full h-full bg-white/80 backdrop-blur">
@@ -80,6 +85,12 @@ export const Settings = ({
           <AIProviderSettings
             config={aiConfig}
             onChangeConfig={onChangeAiConfig}
+          />
+
+          {/* Background */}
+          <BackgroundSettings
+            config={backgroundConfig}
+            onChangeConfig={onChangeBackgroundConfig}
           />
 
           {/* VRM model */}
