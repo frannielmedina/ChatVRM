@@ -7,9 +7,6 @@ import { LipSync } from "../lipSync/lipSync";
 import { EmoteController } from "../emoteController/emoteController";
 import { Screenplay } from "../messages/messages";
 
-/**
- * 3Dキャラクターを管理するクラス
- */
 export class Model {
   public vrm?: VRM | null;
   public mixer?: THREE.AnimationMixer;
@@ -31,15 +28,11 @@ export class Model {
           lookAtPlugin: new VRMLookAtSmootherLoaderPlugin(parser),
         })
     );
-
     const gltf = await loader.loadAsync(url);
-
     const vrm = (this.vrm = gltf.userData.vrm);
     vrm.scene.name = "VRMRoot";
-
     VRMUtils.rotateVRM0(vrm);
     this.mixer = new THREE.AnimationMixer(vrm.scene);
-
     this.emoteController = new EmoteController(vrm, this._lookAtTargetParent);
   }
 
@@ -50,31 +43,18 @@ export class Model {
     }
   }
 
-  /**
-   * VRMアニメーションを読み込む
-   *
-   * https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_vrm_animation-1.0/README.ja.md
-   */
   public async loadAnimation(vrmAnimation: VRMAnimation): Promise<void> {
     const { vrm, mixer } = this;
-    if (vrm == null || mixer == null) {
-      throw new Error("You have to load VRM first");
-    }
-
+    if (vrm == null || mixer == null) throw new Error("Load VRM first");
     const clip = vrmAnimation.createAnimationClip(vrm);
     const action = mixer.clipAction(clip);
     action.play();
   }
 
-  /**
-   * 音声を再生し、リップシンクを行う
-   */
   public async speak(buffer: ArrayBuffer, screenplay: Screenplay) {
     this.emoteController?.playEmotion(screenplay.expression);
     await new Promise((resolve) => {
-      this._lipSync?.playFromArrayBuffer(buffer, () => {
-        resolve(true);
-      });
+      this._lipSync?.playFromArrayBuffer(buffer, () => { resolve(true); });
     });
   }
 
@@ -83,7 +63,6 @@ export class Model {
       const { volume } = this._lipSync.update();
       this.emoteController?.lipSync("aa", volume);
     }
-
     this.emoteController?.update(delta);
     this.mixer?.update(delta);
     this.vrm?.update(delta);
