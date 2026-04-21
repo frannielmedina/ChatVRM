@@ -1,9 +1,10 @@
 import { buildUrl } from "@/utils/buildUrl";
 import Head from "next/head";
+
 export const Meta = () => {
   const title = "ChatVRM";
   const description =
-    "Webブラウザだけで3Dキャラクターとの会話を、マイクやテキスト入力、音声合成を用いて楽しめます。キャラクター（VRM）の変更や性格設定、音声調整もできます。";
+    "Chat with a 3D VRM character in your browser — voice synthesis, Twitch integration, screen sharing, and multiple TTS providers.";
   const imageUrl = "https://pixiv.github.io/ChatVRM/ogp.png";
   return (
     <Head>

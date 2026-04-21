@@ -11,26 +11,15 @@ export default function VrmViewer() {
         viewer.setup(canvas);
         viewer.loadVrm(buildUrl("/AvatarSample_B.vrm"));
 
-        // Drag and DropでVRMを差し替え
-        canvas.addEventListener("dragover", function (event) {
+        canvas.addEventListener("dragover", (event) => event.preventDefault());
+        canvas.addEventListener("drop", (event) => {
           event.preventDefault();
-        });
-
-        canvas.addEventListener("drop", function (event) {
-          event.preventDefault();
-
           const files = event.dataTransfer?.files;
-          if (!files) {
-            return;
-          }
-
+          if (!files) return;
           const file = files[0];
-          if (!file) {
-            return;
-          }
-
-          const file_type = file.name.split(".").pop();
-          if (file_type === "vrm") {
+          if (!file) return;
+          const ext = file.name.split(".").pop();
+          if (ext === "vrm") {
             const blob = new Blob([file], { type: "application/octet-stream" });
             const url = window.URL.createObjectURL(blob);
             viewer.loadVrm(url);

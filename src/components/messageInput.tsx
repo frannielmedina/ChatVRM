@@ -10,6 +10,7 @@ type Props = {
   onClickSendButton: (event: React.MouseEvent<HTMLButtonElement>) => void;
   onClickMicButton: (event: React.MouseEvent<HTMLButtonElement>) => void;
 };
+
 export const MessageInput = ({
   userMessage,
   isMicRecording,
@@ -32,13 +33,12 @@ export const MessageInput = ({
             />
             <input
               type="text"
-              placeholder="聞きたいことをいれてね"
+              placeholder="Type a message..."
               onChange={onChangeUserMessage}
               disabled={isChatProcessing}
-              className="bg-surface1 hover:bg-surface1-hover focus:bg-surface1 disabled:bg-surface1-disabled disabled:text-primary-disabled rounded-16 w-full px-16 text-text-primary typography-16 font-bold disabled"
+              className="bg-surface1 hover:bg-surface1-hover focus:bg-surface1 disabled:bg-surface1-disabled disabled:text-primary-disabled rounded-16 w-full px-16 text-text-primary typography-16 font-bold"
               value={userMessage}
-            ></input>
-
+            />
             <IconButton
               iconName="24/Send"
               className="bg-secondary hover:bg-secondary-hover active:bg-secondary-press disabled:bg-secondary-disabled"
@@ -48,8 +48,8 @@ export const MessageInput = ({
             />
           </div>
         </div>
-        <div className="py-4 bg-[#413D43] text-center text-white font-Montserrat">
-          powered by VRoid, Koemotion, ChatGPT API
+        <div className="py-4 bg-[#413D43] text-center text-white font-Montserrat text-sm">
+          powered by VRoid · ChatGPT · ElevenLabs · Qwen3-TTS · GPT-SoVITS
         </div>
       </div>
     </div>
