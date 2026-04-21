@@ -8,9 +8,10 @@ import { AssistantText } from "./assistantText";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
 import { ScreenShareConfig } from "@/features/screenShare/screenShare";
+import { AIProviderConfig } from "@/features/chat/aiProviders";
 
 type Props = {
-  openAiKey: string;
+  aiConfig: AIProviderConfig;
   systemPrompt: string;
   chatLog: Message[];
   ttsConfig: TTSConfig;
@@ -20,7 +21,7 @@ type Props = {
   twitchConnected: boolean;
   screenShareConfig: ScreenShareConfig;
   onChangeSystemPrompt: (systemPrompt: string) => void;
-  onChangeAiKey: (key: string) => void;
+  onChangeAiConfig: (config: AIProviderConfig) => void;
   onChangeChatLog: (index: number, text: string) => void;
   onChangeTTSConfig: (config: TTSConfig) => void;
   onChangeKoeiroParam: (x: number, y: number) => void;
@@ -35,7 +36,7 @@ type Props = {
 };
 
 export const Menu = ({
-  openAiKey,
+  aiConfig,
   systemPrompt,
   chatLog,
   ttsConfig,
@@ -45,7 +46,7 @@ export const Menu = ({
   twitchConnected,
   screenShareConfig,
   onChangeSystemPrompt,
-  onChangeAiKey,
+  onChangeAiConfig,
   onChangeChatLog,
   onChangeTTSConfig,
   onChangeKoeiroParam,
@@ -62,11 +63,6 @@ export const Menu = ({
   const [showChatLog, setShowChatLog] = useState(false);
   const { viewer } = useContext(ViewerContext);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleAiKeyChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => onChangeAiKey(event.target.value),
-    [onChangeAiKey]
-  );
 
   const handleChangeSystemPrompt = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) =>
@@ -142,7 +138,7 @@ export const Menu = ({
 
       {showSettings && (
         <Settings
-          openAiKey={openAiKey}
+          aiConfig={aiConfig}
           chatLog={chatLog}
           systemPrompt={systemPrompt}
           ttsConfig={ttsConfig}
@@ -151,7 +147,7 @@ export const Menu = ({
           twitchConnected={twitchConnected}
           screenShareConfig={screenShareConfig}
           onClickClose={() => setShowSettings(false)}
-          onChangeAiKey={handleAiKeyChange}
+          onChangeAiConfig={onChangeAiConfig}
           onChangeSystemPrompt={handleChangeSystemPrompt}
           onChangeChatLog={onChangeChatLog}
           onClickOpenVrmFile={handleClickOpenVrmFile}

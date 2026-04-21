@@ -6,12 +6,14 @@ import { Link } from "./link";
 import { TTSSettings } from "./ttsSettings";
 import { TwitchSettings } from "./twitchSettings";
 import { ScreenShareSettings } from "./screenShareSettings";
+import { AIProviderSettings } from "./aiProviderSettings";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
 import { ScreenShareConfig } from "@/features/screenShare/screenShare";
+import { AIProviderConfig } from "@/features/chat/aiProviders";
 
 type Props = {
-  openAiKey: string;
+  aiConfig: AIProviderConfig;
   systemPrompt: string;
   chatLog: Message[];
   ttsConfig: TTSConfig;
@@ -20,7 +22,7 @@ type Props = {
   twitchConnected: boolean;
   screenShareConfig: ScreenShareConfig;
   onClickClose: () => void;
-  onChangeAiKey: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onChangeAiConfig: (config: AIProviderConfig) => void;
   onChangeSystemPrompt: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onChangeChatLog: (index: number, text: string) => void;
   onClickOpenVrmFile: () => void;
@@ -37,7 +39,7 @@ type Props = {
 };
 
 export const Settings = ({
-  openAiKey,
+  aiConfig,
   chatLog,
   systemPrompt,
   ttsConfig,
@@ -47,7 +49,7 @@ export const Settings = ({
   screenShareConfig,
   onClickClose,
   onChangeSystemPrompt,
-  onChangeAiKey,
+  onChangeAiConfig,
   onChangeChatLog,
   onClickOpenVrmFile,
   onClickResetChatLog,
@@ -74,22 +76,11 @@ export const Settings = ({
         <div className="text-text1 max-w-3xl mx-auto px-24 py-64">
           <div className="my-24 typography-32 font-bold">Settings</div>
 
-          {/* OpenAI */}
-          <div className="my-24">
-            <div className="my-16 typography-20 font-bold">OpenAI API Key</div>
-            <input
-              className="text-ellipsis px-16 py-8 w-col-span-2 bg-surface1 hover:bg-surface1-hover rounded-8"
-              type="text"
-              placeholder="sk-..."
-              value={openAiKey}
-              onChange={onChangeAiKey}
-            />
-            <div className="mt-8 text-sm">
-              Get your key at{" "}
-              <Link url="https://platform.openai.com/account/api-keys" label="OpenAI" />.
-              The API is called directly from your browser — keys are not sent to any server.
-            </div>
-          </div>
+          {/* AI Provider */}
+          <AIProviderSettings
+            config={aiConfig}
+            onChangeConfig={onChangeAiConfig}
+          />
 
           {/* VRM model */}
           <div className="my-40">
