@@ -17,6 +17,7 @@ import { GitHubLink } from "@/components/githubLink";
 import { Meta } from "@/components/meta";
 import { TwitchOverlay } from "@/components/twitchOverlay";
 import { ScreenShareBackground } from "@/components/screenShareBackground";
+import { BackgroundRenderer } from "@/components/backgroundRenderer";
 import {
   TTSConfig,
   DEFAULT_TTS_CONFIG,
@@ -32,16 +33,21 @@ import {
   DEFAULT_SCREEN_SHARE_CONFIG,
   startScreenShare,
   stopScreenShare,
-  buildVdoNinjaUrl,
 } from "@/features/screenShare/screenShare";
 import {
   AIProviderConfig,
   DEFAULT_AI_CONFIG,
   getProviderMeta,
 } from "@/features/chat/aiProviders";
+import {
+  BackgroundConfig,
+  DEFAULT_BACKGROUND_CONFIG,
+} from "@/features/background/backgroundConfig";
+import { useAutoHide } from "@/hooks/useAutoHide";
 
 export default function Home() {
   const { viewer } = useContext(ViewerContext);
+  const uiVisible = useAutoHide(3000);
 
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(DEFAULT_AI_CONFIG);
@@ -50,6 +56,9 @@ export default function Home() {
   const [chatProcessing, setChatProcessing] = useState(false);
   const [chatLog, setChatLog] = useState<Message[]>([]);
   const [assistantMessage, setAssistantMessage] = useState("");
+  const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>(
+    DEFAULT_BACKGROUND_CONFIG
+  );
 
   // Twitch
   const [twitchConfig, setTwitchConfig] = useState<TwitchConfig>(DEFAULT_TWITCH_CONFIG);
@@ -61,6 +70,7 @@ export default function Home() {
     DEFAULT_SCREEN_SHARE_CONFIG
   );
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  // For VDO.Ninja we store the URL directly (user-provided)
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
 
   // ── Persist settings ──────────────────────────────────────────────────────
@@ -76,6 +86,8 @@ export default function Home() {
         if (params.ttsConfig) setTtsConfig({ ...DEFAULT_TTS_CONFIG, ...params.ttsConfig });
         if (params.twitchConfig)
           setTwitchConfig({ ...DEFAULT_TWITCH_CONFIG, ...params.twitchConfig });
+        if (params.backgroundConfig)
+          setBackgroundConfig({ ...DEFAULT_BACKGROUND_CONFIG, ...params.backgroundConfig });
       } catch (_) {}
     }
   }, []);
@@ -91,10 +103,11 @@ export default function Home() {
           aiConfig,
           ttsConfig,
           twitchConfig,
+          backgroundConfig,
         })
       )
     );
-  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig]);
+  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig]);
 
   // ── Chat log handlers ─────────────────────────────────────────────────────
   const handleChangeChatLog = useCallback(
@@ -165,7 +178,6 @@ export default function Home() {
         while (true) {
           const { done, value } = await reader.read();
 
-          // ── FIX: flush whatever remains when the stream ends ──────────────
           if (done) {
             const remaining = receivedMessage.trim();
             if (remaining) {
@@ -189,10 +201,7 @@ export default function Home() {
             receivedMessage = receivedMessage.slice(tag.length);
           }
 
-          // ── FIX: only split on real sentence-ending punctuation, not commas ──
-          const sentenceMatch = receivedMessage.match(
-            /^(.+[。．！？\n])/
-          );
+          const sentenceMatch = receivedMessage.match(/^(.+[。．！？\n])/);
           if (sentenceMatch && sentenceMatch[0]) {
             const sentence = sentenceMatch[0];
             sentences.push(sentence);
@@ -264,14 +273,11 @@ export default function Home() {
 
   const handleScreenShareStart = useCallback(async () => {
     if (screenShareConfig.mode === "vdoninja") {
-      const roomId = screenShareConfig.vdoninjaRoomId || "chatvrm-stream";
-      const url = buildVdoNinjaUrl(roomId);
+      // Use the room ID field as a full URL (user pastes viewer link)
+      const url = screenShareConfig.vdoninjaRoomId?.trim() || "";
+      if (!url) return;
       setVdoninjaUrl(url);
       setScreenShareConfig((prev) => ({ ...prev, active: true }));
-      window.open(
-        `https://vdo.ninja/?push=${encodeURIComponent(roomId)}&screenshare`,
-        "_blank"
-      );
     } else {
       try {
         const stream = await startScreenShare();
@@ -293,6 +299,10 @@ export default function Home() {
   return (
     <div className={"font-M_PLUS_2"}>
       <Meta />
+
+      {/* Apply background based on config */}
+      <BackgroundRenderer config={backgroundConfig} />
+
       <Introduction aiConfig={aiConfig} onChangeAiConfig={setAiConfig} />
 
       <ScreenShareBackground
@@ -304,10 +314,17 @@ export default function Home() {
 
       <VrmViewer />
 
-      <MessageInputContainer
-        isChatProcessing={chatProcessing}
-        onChatProcessStart={handleSendChat}
-      />
+      {/* Message input — auto-hide */}
+      <div
+        className={`transition-opacity duration-500 ${
+          uiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <MessageInputContainer
+          isChatProcessing={chatProcessing}
+          onChatProcessStart={handleSendChat}
+        />
+      </div>
 
       <Menu
         aiConfig={aiConfig}
@@ -319,6 +336,8 @@ export default function Home() {
         twitchConfig={twitchConfig}
         twitchConnected={twitchConnected}
         screenShareConfig={screenShareConfig}
+        backgroundConfig={backgroundConfig}
+        uiVisible={uiVisible}
         onChangeAiConfig={setAiConfig}
         onChangeSystemPrompt={setSystemPrompt}
         onChangeChatLog={handleChangeChatLog}
@@ -332,7 +351,17 @@ export default function Home() {
         onChangeScreenShareConfig={setScreenShareConfig}
         onScreenShareStart={handleScreenShareStart}
         onScreenShareStop={handleScreenShareStop}
+        onChangeBackgroundConfig={setBackgroundConfig}
       />
+
+      {/* GitHub link — auto-hide */}
+      <div
+        className={`transition-opacity duration-500 ${
+          uiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <GitHubLink />
+      </div>
 
       {twitchConfig.readChat && (
         <TwitchOverlay
@@ -341,8 +370,6 @@ export default function Home() {
           channel={twitchConfig.channel}
         />
       )}
-
-      <GitHubLink />
     </div>
   );
 }
