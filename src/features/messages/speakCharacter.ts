@@ -1,8 +1,8 @@
 import { wait } from "@/utils/wait";
-import { synthesizeVoiceApi } from "./synthesizeVoice";
 import { Viewer } from "../vrmViewer/viewer";
-import { Screenplay } from "./messages";
-import { Talk } from "./messages";
+import { Screenplay, Talk } from "./messages";
+import { TTSConfig } from "../tts/ttsConfig";
+import { synthesizeWithProvider } from "../tts/ttsProviders";
 
 const createSpeakCharacter = () => {
   let lastTime = 0;
@@ -12,7 +12,8 @@ const createSpeakCharacter = () => {
   return (
     screenplay: Screenplay,
     viewer: Viewer,
-    koeiroApiKey: string,
+    ttsConfig: TTSConfig,
+    koeiroParam: { speakerX: number; speakerY: number },
     onStart?: () => void,
     onComplete?: () => void
   ) => {
@@ -21,8 +22,7 @@ const createSpeakCharacter = () => {
       if (now - lastTime < 1000) {
         await wait(1000 - (now - lastTime));
       }
-
-      const buffer = await fetchAudio(screenplay.talk, koeiroApiKey).catch(
+      const buffer = await fetchAudio(screenplay.talk, ttsConfig, koeiroParam).catch(
         () => null
       );
       lastTime = Date.now();
@@ -33,9 +33,7 @@ const createSpeakCharacter = () => {
     prevSpeakPromise = Promise.all([fetchPromise, prevSpeakPromise]).then(
       ([audioBuffer]) => {
         onStart?.();
-        if (!audioBuffer) {
-          return;
-        }
+        if (!audioBuffer) return;
         return viewer.model?.speak(audioBuffer, screenplay);
       }
     );
@@ -47,24 +45,16 @@ const createSpeakCharacter = () => {
 
 export const speakCharacter = createSpeakCharacter();
 
-export const fetchAudio = async (
+export async function fetchAudio(
   talk: Talk,
-  apiKey: string
-): Promise<ArrayBuffer> => {
-  const ttsVoice = await synthesizeVoiceApi(
+  ttsConfig: TTSConfig,
+  koeiroParam: { speakerX: number; speakerY: number }
+): Promise<ArrayBuffer> {
+  return synthesizeWithProvider(
     talk.message,
-    talk.speakerX,
-    talk.speakerY,
     talk.style,
-    apiKey
+    koeiroParam.speakerX,
+    koeiroParam.speakerY,
+    ttsConfig
   );
-  const url = ttsVoice.audio;
-
-  if (url == null) {
-    throw new Error("Something went wrong");
-  }
-
-  const resAudio = await fetch(url);
-  const buffer = await resAudio.arrayBuffer();
-  return buffer;
-};
+}
