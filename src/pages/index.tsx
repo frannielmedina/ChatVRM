@@ -164,7 +164,22 @@ export default function Home() {
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+
+          // ── FIX: flush whatever remains when the stream ends ──────────────
+          if (done) {
+            const remaining = receivedMessage.trim();
+            if (remaining) {
+              const aiText = `${tag} ${remaining}`;
+              const aiTalks = textsToScreenplay([aiText], koeiroParam);
+              aiTextLog += aiText;
+              sentences.push(remaining);
+              const currentAssistantMessage = sentences.join(" ");
+              handleSpeakAi(aiTalks[0], () => {
+                setAssistantMessage(currentAssistantMessage);
+              });
+            }
+            break;
+          }
 
           receivedMessage += value;
 
@@ -174,8 +189,9 @@ export default function Home() {
             receivedMessage = receivedMessage.slice(tag.length);
           }
 
+          // ── FIX: only split on real sentence-ending punctuation, not commas ──
           const sentenceMatch = receivedMessage.match(
-            /^(.+[。．！？\n]|.{10,}[、,])/
+            /^(.+[。．！？\n])/
           );
           if (sentenceMatch && sentenceMatch[0]) {
             const sentence = sentenceMatch[0];
@@ -330,4 +346,3 @@ export default function Home() {
     </div>
   );
 }
-
