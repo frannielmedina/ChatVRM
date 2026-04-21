@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import VrmViewer from "@/components/vrmViewer";
 import { ViewerContext } from "@/features/vrmViewer/viewerContext";
 import {
@@ -10,7 +10,7 @@ import { speakCharacter } from "@/features/messages/speakCharacter";
 import { MessageInputContainer } from "@/components/messageInputContainer";
 import { SYSTEM_PROMPT } from "@/features/constants/systemPromptConstants";
 import { KoeiroParam, DEFAULT_PARAM } from "@/features/constants/koeiroParam";
-import { getChatResponseStream } from "@/features/chat/openAiChat";
+import { getChatResponseStream } from "@/features/chat/multiProviderChat";
 import { Introduction } from "@/components/introduction";
 import { Menu } from "@/components/menu";
 import { GitHubLink } from "@/components/githubLink";
@@ -34,12 +34,17 @@ import {
   stopScreenShare,
   buildVdoNinjaUrl,
 } from "@/features/screenShare/screenShare";
+import {
+  AIProviderConfig,
+  DEFAULT_AI_CONFIG,
+  getProviderMeta,
+} from "@/features/chat/aiProviders";
 
 export default function Home() {
   const { viewer } = useContext(ViewerContext);
 
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
-  const [openAiKey, setOpenAiKey] = useState("");
+  const [aiConfig, setAiConfig] = useState<AIProviderConfig>(DEFAULT_AI_CONFIG);
   const [koeiroParam, setKoeiroParam] = useState<KoeiroParam>(DEFAULT_PARAM);
   const [ttsConfig, setTtsConfig] = useState<TTSConfig>(DEFAULT_TTS_CONFIG);
   const [chatProcessing, setChatProcessing] = useState(false);
@@ -52,7 +57,9 @@ export default function Home() {
   const [twitchMessages, setTwitchMessages] = useState<TwitchMessage[]>([]);
 
   // Screen Share
-  const [screenShareConfig, setScreenShareConfig] = useState<ScreenShareConfig>(DEFAULT_SCREEN_SHARE_CONFIG);
+  const [screenShareConfig, setScreenShareConfig] = useState<ScreenShareConfig>(
+    DEFAULT_SCREEN_SHARE_CONFIG
+  );
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
 
@@ -65,9 +72,10 @@ export default function Home() {
         setSystemPrompt(params.systemPrompt ?? SYSTEM_PROMPT);
         setKoeiroParam(params.koeiroParam ?? DEFAULT_PARAM);
         setChatLog(params.chatLog ?? []);
-        setOpenAiKey(params.openAiKey ?? "");
+        if (params.aiConfig) setAiConfig({ ...DEFAULT_AI_CONFIG, ...params.aiConfig });
         if (params.ttsConfig) setTtsConfig({ ...DEFAULT_TTS_CONFIG, ...params.ttsConfig });
-        if (params.twitchConfig) setTwitchConfig({ ...DEFAULT_TWITCH_CONFIG, ...params.twitchConfig });
+        if (params.twitchConfig)
+          setTwitchConfig({ ...DEFAULT_TWITCH_CONFIG, ...params.twitchConfig });
       } catch (_) {}
     }
   }, []);
@@ -76,10 +84,17 @@ export default function Home() {
     process.nextTick(() =>
       window.localStorage.setItem(
         "chatVRMParams",
-        JSON.stringify({ systemPrompt, koeiroParam, chatLog, openAiKey, ttsConfig, twitchConfig })
+        JSON.stringify({
+          systemPrompt,
+          koeiroParam,
+          chatLog,
+          aiConfig,
+          ttsConfig,
+          twitchConfig,
+        })
       )
     );
-  }, [systemPrompt, koeiroParam, chatLog, openAiKey, ttsConfig, twitchConfig]);
+  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig]);
 
   // ── Chat log handlers ─────────────────────────────────────────────────────
   const handleChangeChatLog = useCallback(
@@ -106,8 +121,13 @@ export default function Home() {
   // ── Send chat ─────────────────────────────────────────────────────────────
   const handleSendChat = useCallback(
     async (text: string) => {
-      if (!openAiKey) {
-        setAssistantMessage("Please enter your OpenAI API key in Settings.");
+      const providerMeta = getProviderMeta(aiConfig.provider);
+      const needsKey = providerMeta.requiresKey;
+
+      if (needsKey && !aiConfig.apiKey) {
+        setAssistantMessage(
+          `Please enter your ${providerMeta.label} API key in Settings.`
+        );
         return;
       }
       if (!text?.trim()) return;
@@ -125,7 +145,7 @@ export default function Home() {
         ...messageLog,
       ];
 
-      const stream = await getChatResponseStream(messages, openAiKey).catch((e) => {
+      const stream = await getChatResponseStream(messages, aiConfig).catch((e) => {
         console.error(e);
         return null;
       });
@@ -190,7 +210,7 @@ export default function Home() {
       setChatLog([...messageLog, { role: "assistant", content: aiTextLog }]);
       setChatProcessing(false);
     },
-    [systemPrompt, chatLog, handleSpeakAi, openAiKey, koeiroParam]
+    [systemPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam]
   );
 
   // ── Twitch ────────────────────────────────────────────────────────────────
@@ -207,8 +227,6 @@ export default function Home() {
     });
 
     setTwitchConnected(true);
-
-    // Store unsub for cleanup
     (window as any).__twitchUnsub = unsub;
   }, [twitchConfig, chatProcessing, handleSendChat]);
 
@@ -221,6 +239,13 @@ export default function Home() {
   }, []);
 
   // ── Screen Share ──────────────────────────────────────────────────────────
+  const handleScreenShareStop = useCallback(() => {
+    stopScreenShare();
+    setScreenStream(null);
+    setVdoninjaUrl("");
+    setScreenShareConfig((prev) => ({ ...prev, active: false }));
+  }, []);
+
   const handleScreenShareStart = useCallback(async () => {
     if (screenShareConfig.mode === "vdoninja") {
       const roomId = screenShareConfig.vdoninjaRoomId || "chatvrm-stream";
@@ -236,7 +261,6 @@ export default function Home() {
         const stream = await startScreenShare();
         setScreenStream(stream);
         setScreenShareConfig((prev) => ({ ...prev, active: true }));
-
         stream.getVideoTracks()[0].addEventListener("ended", () => {
           handleScreenShareStop();
         });
@@ -244,16 +268,8 @@ export default function Home() {
         console.error("Screen share cancelled or failed", e);
       }
     }
-  }, [screenShareConfig]);
+  }, [screenShareConfig, handleScreenShareStop]);
 
-  const handleScreenShareStop = useCallback(() => {
-    stopScreenShare();
-    setScreenStream(null);
-    setVdoninjaUrl("");
-    setScreenShareConfig((prev) => ({ ...prev, active: false }));
-  }, []);
-
-  // ── TTS config sync with koeiromap key ────────────────────────────────────
   const handleChangeTtsConfig = useCallback((config: TTSConfig) => {
     setTtsConfig(config);
   }, []);
@@ -261,9 +277,8 @@ export default function Home() {
   return (
     <div className={"font-M_PLUS_2"}>
       <Meta />
-      <Introduction openAiKey={openAiKey} onChangeAiKey={setOpenAiKey} />
+      <Introduction aiConfig={aiConfig} onChangeAiConfig={setAiConfig} />
 
-      {/* Screen share background — behind everything except -z-10 canvas */}
       <ScreenShareBackground
         stream={screenStream}
         vdoninjaUrl={vdoninjaUrl}
@@ -279,7 +294,7 @@ export default function Home() {
       />
 
       <Menu
-        openAiKey={openAiKey}
+        aiConfig={aiConfig}
         systemPrompt={systemPrompt}
         chatLog={chatLog}
         ttsConfig={ttsConfig}
@@ -288,7 +303,7 @@ export default function Home() {
         twitchConfig={twitchConfig}
         twitchConnected={twitchConnected}
         screenShareConfig={screenShareConfig}
-        onChangeAiKey={setOpenAiKey}
+        onChangeAiConfig={setAiConfig}
         onChangeSystemPrompt={setSystemPrompt}
         onChangeChatLog={handleChangeChatLog}
         onChangeTTSConfig={handleChangeTtsConfig}
@@ -315,3 +330,4 @@ export default function Home() {
     </div>
   );
 }
+
