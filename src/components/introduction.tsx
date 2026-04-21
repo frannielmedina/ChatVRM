@@ -45,7 +45,7 @@ export const Introduction = ({ openAiKey, onChangeAiKey }: Props) => {
           <div className="my-8 font-bold typography-20 text-secondary">Usage Notes</div>
           <div>
             Do not intentionally induce discriminatory, violent, or harmful speech.
-            When swapping VRM models, follow the model's license terms.
+            When swapping VRM models, follow the model&apos;s license terms.
           </div>
         </div>
 
