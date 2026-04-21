@@ -4,24 +4,12 @@ export interface VRMCVRMAnimation {
   specVersion: string;
   humanoid: {
     humanBones: {
-      [name in VRMHumanBoneName]?: {
-        node: number;
-      };
+      [name in VRMHumanBoneName]?: { node: number };
     };
   };
   expressions?: {
-    preset?: {
-      [name in VRMExpressionPresetName]?: {
-        node: number;
-      };
-    };
-    custom?: {
-      [name: string]: {
-        node: number;
-      };
-    };
+    preset?: { [name in VRMExpressionPresetName]?: { node: number } };
+    custom?: { [name: string]: { node: number } };
   };
-  lookAt?: {
-    node: number;
-  };
+  lookAt?: { node: number };
 }
