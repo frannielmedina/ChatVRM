@@ -18,10 +18,7 @@ import { Meta } from "@/components/meta";
 import { TwitchOverlay } from "@/components/twitchOverlay";
 import { ScreenShareBackground } from "@/components/screenShareBackground";
 import { BackgroundRenderer } from "@/components/backgroundRenderer";
-import {
-  TTSConfig,
-  DEFAULT_TTS_CONFIG,
-} from "@/features/tts/ttsConfig";
+import { TTSConfig, DEFAULT_TTS_CONFIG } from "@/features/tts/ttsConfig";
 import {
   TwitchConfig,
   TwitchMessage,
@@ -43,6 +40,7 @@ import {
   BackgroundConfig,
   DEFAULT_BACKGROUND_CONFIG,
 } from "@/features/background/backgroundConfig";
+import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 import { useAutoHide } from "@/hooks/useAutoHide";
 
 export default function Home() {
@@ -70,10 +68,9 @@ export default function Home() {
     DEFAULT_SCREEN_SHARE_CONFIG
   );
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
-  // For VDO.Ninja we store the URL directly (user-provided)
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
 
-  // ── Persist settings ──────────────────────────────────────────────────────
+  // ── Persist settings to localStorage ─────────────────────────────────────
   useEffect(() => {
     const saved = window.localStorage.getItem("chatVRMParams");
     if (saved) {
@@ -108,6 +105,19 @@ export default function Home() {
       )
     );
   }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig]);
+
+  // ── Load settings from file ───────────────────────────────────────────────
+  const handleLoadSettings = useCallback((snapshot: SettingsSnapshot) => {
+    setSystemPrompt(snapshot.systemPrompt);
+    setAiConfig({ ...DEFAULT_AI_CONFIG, ...snapshot.aiConfig });
+    setTtsConfig({ ...DEFAULT_TTS_CONFIG, ...snapshot.ttsConfig });
+    setKoeiroParam({ ...DEFAULT_PARAM, ...snapshot.koeiroParam });
+    setBackgroundConfig({
+      ...DEFAULT_BACKGROUND_CONFIG,
+      ...snapshot.backgroundConfig,
+      imageUrl: "", // images aren't saved in the file
+    });
+  }, []);
 
   // ── Chat log handlers ─────────────────────────────────────────────────────
   const handleChangeChatLog = useCallback(
@@ -244,7 +254,6 @@ export default function Home() {
 
     const unsub = twitchClient.onMessage((msg) => {
       setTwitchMessages((prev) => [...prev.slice(-49), msg]);
-
       if (twitchConfig.respondToChat && !chatProcessing) {
         const prompt = `[Twitch chat] ${msg.username}: ${msg.message}`;
         handleSendChat(prompt);
@@ -273,7 +282,6 @@ export default function Home() {
 
   const handleScreenShareStart = useCallback(async () => {
     if (screenShareConfig.mode === "vdoninja") {
-      // Use the room ID field as a full URL (user pastes viewer link)
       const url = screenShareConfig.vdoninjaRoomId?.trim() || "";
       if (!url) return;
       setVdoninjaUrl(url);
@@ -300,7 +308,6 @@ export default function Home() {
     <div className={"font-M_PLUS_2"}>
       <Meta />
 
-      {/* Apply background based on config */}
       <BackgroundRenderer config={backgroundConfig} />
 
       <Introduction aiConfig={aiConfig} onChangeAiConfig={setAiConfig} />
@@ -352,6 +359,7 @@ export default function Home() {
         onScreenShareStart={handleScreenShareStart}
         onScreenShareStop={handleScreenShareStop}
         onChangeBackgroundConfig={setBackgroundConfig}
+        onLoadSettings={handleLoadSettings}
       />
 
       {/* GitHub link — auto-hide */}
