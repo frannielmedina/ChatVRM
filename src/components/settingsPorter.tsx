@@ -109,7 +109,7 @@ export const SettingsPorter = ({
 
       {/* What gets saved */}
       <div className="mb-16 p-12 bg-surface1 rounded-8 text-sm">
-        <div className="font-bold mb-6 text-text-primary/80">What's included in the file:</div>
+        <div className="font-bold mb-6 text-text-primary/80">What&apos;s included in the file:</div>
         <ul className="space-y-2 text-text-primary/60">
           <li className="flex items-center gap-6">
             <span className="text-green-500">✓</span>
