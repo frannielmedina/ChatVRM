@@ -10,13 +10,15 @@ import { TwitchConfig } from "@/features/twitch/twitchClient";
 import { ScreenShareConfig } from "@/features/screenShare/screenShare";
 import { AIProviderConfig } from "@/features/chat/aiProviders";
 import { BackgroundConfig } from "@/features/background/backgroundConfig";
+import { KoeiroParam } from "@/features/constants/koeiroParam";
+import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 
 type Props = {
   aiConfig: AIProviderConfig;
   systemPrompt: string;
   chatLog: Message[];
   ttsConfig: TTSConfig;
-  koeiroParam: { speakerX: number; speakerY: number };
+  koeiroParam: KoeiroParam;
   assistantMessage: string;
   twitchConfig: TwitchConfig;
   twitchConnected: boolean;
@@ -37,6 +39,7 @@ type Props = {
   onScreenShareStart: () => void;
   onScreenShareStop: () => void;
   onChangeBackgroundConfig: (config: BackgroundConfig) => void;
+  onLoadSettings: (snapshot: SettingsSnapshot) => void;
 };
 
 export const Menu = ({
@@ -65,6 +68,7 @@ export const Menu = ({
   onScreenShareStart,
   onScreenShareStop,
   onChangeBackgroundConfig,
+  onLoadSettings,
 }: Props) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showChatLog, setShowChatLog] = useState(false);
@@ -96,7 +100,7 @@ export const Menu = ({
     [viewer]
   );
 
-  // When settings is open, always show UI
+  // Keep UI visible while settings panel is open
   const shouldShowUI = uiVisible || showSettings;
 
   return (
@@ -133,7 +137,7 @@ export const Menu = ({
           {twitchConnected && (
             <div className="flex items-center gap-4 px-12 py-8 bg-[#9146FF]/20 border border-[#9146FF]/40 rounded-16 text-[#9146FF] text-sm font-bold">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="#9146FF">
-                <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
+                <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z" />
               </svg>
               Live
             </div>
@@ -178,6 +182,7 @@ export const Menu = ({
           onScreenShareStart={onScreenShareStart}
           onScreenShareStop={onScreenShareStop}
           onChangeBackgroundConfig={onChangeBackgroundConfig}
+          onLoadSettings={onLoadSettings}
         />
       )}
 

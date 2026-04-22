@@ -7,18 +7,21 @@ import { TwitchSettings } from "./twitchSettings";
 import { ScreenShareSettings } from "./screenShareSettings";
 import { AIProviderSettings } from "./aiProviderSettings";
 import { BackgroundSettings } from "./backgroundSettings";
+import { SettingsPorter } from "./settingsPorter";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
 import { ScreenShareConfig } from "@/features/screenShare/screenShare";
 import { AIProviderConfig } from "@/features/chat/aiProviders";
 import { BackgroundConfig } from "@/features/background/backgroundConfig";
+import { KoeiroParam } from "@/features/constants/koeiroParam";
+import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 
 type Props = {
   aiConfig: AIProviderConfig;
   systemPrompt: string;
   chatLog: Message[];
   ttsConfig: TTSConfig;
-  koeiroParam: { speakerX: number; speakerY: number };
+  koeiroParam: KoeiroParam;
   twitchConfig: TwitchConfig;
   twitchConnected: boolean;
   screenShareConfig: ScreenShareConfig;
@@ -39,6 +42,7 @@ type Props = {
   onScreenShareStart: () => void;
   onScreenShareStop: () => void;
   onChangeBackgroundConfig: (config: BackgroundConfig) => void;
+  onLoadSettings: (snapshot: SettingsSnapshot) => void;
 };
 
 export const Settings = ({
@@ -67,6 +71,7 @@ export const Settings = ({
   onScreenShareStart,
   onScreenShareStop,
   onChangeBackgroundConfig,
+  onLoadSettings,
 }: Props) => {
   return (
     <div className="absolute z-40 w-full h-full bg-white/80 backdrop-blur">
@@ -81,19 +86,31 @@ export const Settings = ({
         <div className="text-text1 max-w-3xl mx-auto px-24 py-64">
           <div className="my-24 typography-32 font-bold">Settings</div>
 
-          {/* AI Provider */}
+          {/* ── Save / Load ────────────────────────────────────────────────── */}
+          <SettingsPorter
+            systemPrompt={systemPrompt}
+            aiConfig={aiConfig}
+            ttsConfig={ttsConfig}
+            koeiroParam={koeiroParam}
+            backgroundConfig={backgroundConfig}
+            onLoadSettings={onLoadSettings}
+          />
+
+          <div className="border-t border-surface3 my-32" />
+
+          {/* ── AI Provider ───────────────────────────────────────────────── */}
           <AIProviderSettings
             config={aiConfig}
             onChangeConfig={onChangeAiConfig}
           />
 
-          {/* Background */}
+          {/* ── Background ────────────────────────────────────────────────── */}
           <BackgroundSettings
             config={backgroundConfig}
             onChangeConfig={onChangeBackgroundConfig}
           />
 
-          {/* VRM model */}
+          {/* ── VRM model ─────────────────────────────────────────────────── */}
           <div className="my-40">
             <div className="my-16 typography-20 font-bold">Character Model</div>
             <div className="my-8">
@@ -101,11 +118,15 @@ export const Settings = ({
             </div>
           </div>
 
-          {/* System prompt */}
+          {/* ── System prompt ─────────────────────────────────────────────── */}
           <div className="my-40">
             <div className="my-8">
-              <div className="my-16 typography-20 font-bold">Character Prompt (System Prompt)</div>
-              <TextButton onClick={onClickResetSystemPrompt}>Reset to Default</TextButton>
+              <div className="my-16 typography-20 font-bold">
+                Character Prompt (System Prompt)
+              </div>
+              <TextButton onClick={onClickResetSystemPrompt}>
+                Reset to Default
+              </TextButton>
             </div>
             <textarea
               value={systemPrompt}
@@ -114,7 +135,7 @@ export const Settings = ({
             />
           </div>
 
-          {/* TTS */}
+          {/* ── TTS ───────────────────────────────────────────────────────── */}
           <TTSSettings
             ttsConfig={ttsConfig}
             onChangeTTSConfig={onChangeTTSConfig}
@@ -122,7 +143,7 @@ export const Settings = ({
             onChangeKoeiroParam={onChangeKoeiroParam}
           />
 
-          {/* Twitch */}
+          {/* ── Twitch ────────────────────────────────────────────────────── */}
           <TwitchSettings
             config={twitchConfig}
             isConnected={twitchConnected}
@@ -131,7 +152,7 @@ export const Settings = ({
             onDisconnect={onTwitchDisconnect}
           />
 
-          {/* Screen Share */}
+          {/* ── Screen Share ──────────────────────────────────────────────── */}
           <ScreenShareSettings
             config={screenShareConfig}
             onChangeConfig={onChangeScreenShareConfig}
@@ -139,12 +160,16 @@ export const Settings = ({
             onStop={onScreenShareStop}
           />
 
-          {/* Chat log */}
+          {/* ── Chat log ──────────────────────────────────────────────────── */}
           {chatLog.length > 0 && (
             <div className="my-40">
               <div className="my-8">
-                <div className="my-16 typography-20 font-bold">Conversation History</div>
-                <TextButton onClick={onClickResetChatLog}>Clear History</TextButton>
+                <div className="my-16 typography-20 font-bold">
+                  Conversation History
+                </div>
+                <TextButton onClick={onClickResetChatLog}>
+                  Clear History
+                </TextButton>
               </div>
               <div className="my-8">
                 {chatLog.map((value, index) => (
