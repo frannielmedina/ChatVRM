@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import VrmViewer from "@/components/vrmViewer";
 import { ViewerContext } from "@/features/vrmViewer/viewerContext";
 import {
@@ -70,6 +70,12 @@ export default function Home() {
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
 
+  // ── FIX: refs que siempre apuntan a la versión más reciente ──────────────
+  // Evita el bug de stale closure donde el listener de Twitch capturaba
+  // una versión antigua de handleSendChat con chatLog vacío.
+  const sendChatRef = useRef<(text: string) => Promise<void>>(async () => {});
+  const twitchUnsubRef = useRef<(() => void) | null>(null);
+
   // ── Persist settings to localStorage ─────────────────────────────────────
   useEffect(() => {
     const saved = window.localStorage.getItem("chatVRMParams");
@@ -106,6 +112,14 @@ export default function Home() {
     );
   }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig]);
 
+  // ── Limpieza del listener de Twitch al desmontar el componente ────────────
+  useEffect(() => {
+    return () => {
+      twitchUnsubRef.current?.();
+      twitchUnsubRef.current = null;
+    };
+  }, []);
+
   // ── Load settings from file ───────────────────────────────────────────────
   const handleLoadSettings = useCallback((snapshot: SettingsSnapshot) => {
     setSystemPrompt(snapshot.systemPrompt);
@@ -115,7 +129,7 @@ export default function Home() {
     setBackgroundConfig({
       ...DEFAULT_BACKGROUND_CONFIG,
       ...snapshot.backgroundConfig,
-      imageUrl: "", // images aren't saved in the file
+      imageUrl: "",
     });
   }, []);
 
@@ -248,28 +262,43 @@ export default function Home() {
     [systemPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam]
   );
 
+  // ── FIX: mantiene el ref siempre apuntando al handleSendChat más reciente ─
+  // Cada vez que handleSendChat se recrea (porque chatLog u otras deps cambian),
+  // actualizamos el ref. El listener de Twitch llama a sendChatRef.current,
+  // por lo que siempre usa la versión con el chatLog correcto.
+  useEffect(() => {
+    sendChatRef.current = handleSendChat;
+  }, [handleSendChat]);
+
   // ── Twitch ────────────────────────────────────────────────────────────────
   const handleTwitchConnect = useCallback(() => {
+    // Limpia cualquier listener anterior antes de crear uno nuevo
+    twitchUnsubRef.current?.();
+    twitchUnsubRef.current = null;
+
     twitchClient.connect(twitchConfig.channel, twitchConfig.oauthToken);
 
     const unsub = twitchClient.onMessage((msg) => {
       setTwitchMessages((prev) => [...prev.slice(-49), msg]);
       if (twitchConfig.respondToChat && !chatProcessing) {
         const prompt = `[Twitch chat] ${msg.username}: ${msg.message}`;
-        handleSendChat(prompt);
+        // FIX: usa sendChatRef.current en lugar de capturar handleSendChat
+        // directamente, evitando el closure stale que reseteaba la memoria.
+        sendChatRef.current(prompt);
       }
     });
 
+    // FIX: guarda el unsub en un ref en lugar de window.__twitchUnsub
+    twitchUnsubRef.current = unsub;
     setTwitchConnected(true);
-    (window as any).__twitchUnsub = unsub;
-  }, [twitchConfig, chatProcessing, handleSendChat]);
+  }, [twitchConfig, chatProcessing]);
 
   const handleTwitchDisconnect = useCallback(() => {
     twitchClient.disconnect();
     setTwitchConnected(false);
-    if (typeof (window as any).__twitchUnsub === "function") {
-      (window as any).__twitchUnsub();
-    }
+    // FIX: usa el ref para limpiar el listener de forma segura
+    twitchUnsubRef.current?.();
+    twitchUnsubRef.current = null;
   }, []);
 
   // ── Screen Share ──────────────────────────────────────────────────────────
