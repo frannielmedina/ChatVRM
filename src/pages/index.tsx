@@ -71,8 +71,6 @@ export default function Home() {
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
 
   // ── FIX: refs que siempre apuntan a la versión más reciente ──────────────
-  // Evita el bug de stale closure donde el listener de Twitch capturaba
-  // una versión antigua de handleSendChat con chatLog vacío.
   const sendChatRef = useRef<(text: string) => Promise<void>>(async () => {});
   const twitchUnsubRef = useRef<(() => void) | null>(null);
 
@@ -263,9 +261,6 @@ export default function Home() {
   );
 
   // ── FIX: mantiene el ref siempre apuntando al handleSendChat más reciente ─
-  // Cada vez que handleSendChat se recrea (porque chatLog u otras deps cambian),
-  // actualizamos el ref. El listener de Twitch llama a sendChatRef.current,
-  // por lo que siempre usa la versión con el chatLog correcto.
   useEffect(() => {
     sendChatRef.current = handleSendChat;
   }, [handleSendChat]);
@@ -281,14 +276,16 @@ export default function Home() {
     const unsub = twitchClient.onMessage((msg) => {
       setTwitchMessages((prev) => [...prev.slice(-49), msg]);
       if (twitchConfig.respondToChat && !chatProcessing) {
+        const trimmed = msg.message.trim();
+        // Ignorar si empieza con # (comando/hashtag) o con @mención a otro usuario
+        const startsWithHash = trimmed.startsWith("#");
+        const startsWithMention = /^@\S+/.test(trimmed);
+        if (startsWithHash || startsWithMention) return;
         const prompt = `[Twitch chat] ${msg.username}: ${msg.message}`;
-        // FIX: usa sendChatRef.current en lugar de capturar handleSendChat
-        // directamente, evitando el closure stale que reseteaba la memoria.
         sendChatRef.current(prompt);
       }
     });
 
-    // FIX: guarda el unsub en un ref en lugar de window.__twitchUnsub
     twitchUnsubRef.current = unsub;
     setTwitchConnected(true);
   }, [twitchConfig, chatProcessing]);
@@ -296,7 +293,6 @@ export default function Home() {
   const handleTwitchDisconnect = useCallback(() => {
     twitchClient.disconnect();
     setTwitchConnected(false);
-    // FIX: usa el ref para limpiar el listener de forma segura
     twitchUnsubRef.current?.();
     twitchUnsubRef.current = null;
   }, []);
