@@ -42,6 +42,7 @@ import {
 } from "@/features/background/backgroundConfig";
 import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 import { useAutoHide } from "@/hooks/useAutoHide";
+import { CaptionStyle, DEFAULT_CAPTION_STYLE } from "@/components/captionSettings";
 
 export default function Home() {
   const { viewer } = useContext(ViewerContext);
@@ -57,6 +58,7 @@ export default function Home() {
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>(
     DEFAULT_BACKGROUND_CONFIG
   );
+  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_CAPTION_STYLE);
 
   // Twitch
   const [twitchConfig, setTwitchConfig] = useState<TwitchConfig>(DEFAULT_TWITCH_CONFIG);
@@ -70,11 +72,10 @@ export default function Home() {
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
 
-  // ── FIX: refs que siempre apuntan a la versión más reciente ──────────────
   const sendChatRef = useRef<(text: string) => Promise<void>>(async () => {});
   const twitchUnsubRef = useRef<(() => void) | null>(null);
 
-  // ── Persist settings to localStorage ─────────────────────────────────────
+  // ── Persist settings to localStorage ────────────────────────────────────
   useEffect(() => {
     const saved = window.localStorage.getItem("chatVRMParams");
     if (saved) {
@@ -89,6 +90,8 @@ export default function Home() {
           setTwitchConfig({ ...DEFAULT_TWITCH_CONFIG, ...params.twitchConfig });
         if (params.backgroundConfig)
           setBackgroundConfig({ ...DEFAULT_BACKGROUND_CONFIG, ...params.backgroundConfig });
+        if (params.captionStyle)
+          setCaptionStyle({ ...DEFAULT_CAPTION_STYLE, ...params.captionStyle });
       } catch (_) {}
     }
   }, []);
@@ -105,12 +108,12 @@ export default function Home() {
           ttsConfig,
           twitchConfig,
           backgroundConfig,
+          captionStyle,
         })
       )
     );
-  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig]);
+  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle]);
 
-  // ── Limpieza del listener de Twitch al desmontar el componente ────────────
   useEffect(() => {
     return () => {
       twitchUnsubRef.current?.();
@@ -118,7 +121,7 @@ export default function Home() {
     };
   }, []);
 
-  // ── Load settings from file ───────────────────────────────────────────────
+  // ── Load settings from file ──────────────────────────────────────────────
   const handleLoadSettings = useCallback((snapshot: SettingsSnapshot) => {
     setSystemPrompt(snapshot.systemPrompt);
     setAiConfig({ ...DEFAULT_AI_CONFIG, ...snapshot.aiConfig });
@@ -131,7 +134,7 @@ export default function Home() {
     });
   }, []);
 
-  // ── Chat log handlers ─────────────────────────────────────────────────────
+  // ── Chat log handlers ────────────────────────────────────────────────────
   const handleChangeChatLog = useCallback(
     (targetIndex: number, text: string) => {
       setChatLog((prev) =>
@@ -141,7 +144,7 @@ export default function Home() {
     []
   );
 
-  // ── Speak AI ──────────────────────────────────────────────────────────────
+  // ── Speak AI ────────────────────────────────────────────────────────────
   const handleSpeakAi = useCallback(
     async (
       screenplay: Screenplay,
@@ -153,7 +156,7 @@ export default function Home() {
     [viewer, ttsConfig, koeiroParam]
   );
 
-  // ── Send chat ─────────────────────────────────────────────────────────────
+  // ── Send chat ────────────────────────────────────────────────────────────
   const handleSendChat = useCallback(
     async (text: string) => {
       const providerMeta = getProviderMeta(aiConfig.provider);
@@ -260,14 +263,12 @@ export default function Home() {
     [systemPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam]
   );
 
-  // ── FIX: mantiene el ref siempre apuntando al handleSendChat más reciente ─
   useEffect(() => {
     sendChatRef.current = handleSendChat;
   }, [handleSendChat]);
 
-  // ── Twitch ────────────────────────────────────────────────────────────────
+  // ── Twitch ───────────────────────────────────────────────────────────────
   const handleTwitchConnect = useCallback(() => {
-    // Limpia cualquier listener anterior antes de crear uno nuevo
     twitchUnsubRef.current?.();
     twitchUnsubRef.current = null;
 
@@ -277,7 +278,6 @@ export default function Home() {
       setTwitchMessages((prev) => [...prev.slice(-49), msg]);
       if (twitchConfig.respondToChat && !chatProcessing) {
         const trimmed = msg.message.trim();
-        // Ignorar si empieza con # (comando/hashtag) o con @mención a otro usuario
         const startsWithHash = trimmed.startsWith("#");
         const startsWithMention = /^@\S+/.test(trimmed);
         if (startsWithHash || startsWithMention) return;
@@ -297,7 +297,7 @@ export default function Home() {
     twitchUnsubRef.current = null;
   }, []);
 
-  // ── Screen Share ──────────────────────────────────────────────────────────
+  // ── Screen Share ─────────────────────────────────────────────────────────
   const handleScreenShareStop = useCallback(() => {
     stopScreenShare();
     setScreenStream(null);
@@ -369,6 +369,7 @@ export default function Home() {
         twitchConnected={twitchConnected}
         screenShareConfig={screenShareConfig}
         backgroundConfig={backgroundConfig}
+        captionStyle={captionStyle}
         uiVisible={uiVisible}
         onChangeAiConfig={setAiConfig}
         onChangeSystemPrompt={setSystemPrompt}
@@ -384,6 +385,7 @@ export default function Home() {
         onScreenShareStart={handleScreenShareStart}
         onScreenShareStop={handleScreenShareStop}
         onChangeBackgroundConfig={setBackgroundConfig}
+        onChangeCaptionStyle={setCaptionStyle}
         onLoadSettings={handleLoadSettings}
       />
 
