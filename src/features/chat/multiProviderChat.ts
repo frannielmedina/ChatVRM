@@ -1,6 +1,11 @@
 import { Message } from "../messages/messages";
 import { AIProviderConfig } from "./aiProviders";
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const MAX_TOKENS = 4096;
+const TEMPERATURE = 0.8; // Coherent but expressive — not chaotic
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getBaseUrl(config: AIProviderConfig): string {
@@ -10,7 +15,6 @@ function getBaseUrl(config: AIProviderConfig): string {
     case "mistral":
       return "https://api.mistral.ai/v1";
     case "google":
-      // Google uses its own endpoint format
       return "https://generativelanguage.googleapis.com/v1beta";
     case "openrouter":
       return "https://openrouter.ai/api/v1";
@@ -28,10 +32,10 @@ function getBaseUrl(config: AIProviderConfig): string {
 function getAuthHeader(config: AIProviderConfig): Record<string, string> {
   switch (config.provider) {
     case "google":
-      return {}; // Google uses query param, not header
+      return {};
     case "ollama":
     case "lmstudio":
-      return {}; // No auth for local providers
+      return {};
     default:
       return { Authorization: `Bearer ${config.apiKey}` };
   }
@@ -47,7 +51,8 @@ function getExtraHeaders(config: AIProviderConfig): Record<string, string> {
   return {};
 }
 
-// Google uses a completely different request shape
+// ── Google Gemini streaming ───────────────────────────────────────────────────
+
 async function getChatResponseStreamGoogle(
   messages: Message[],
   config: AIProviderConfig
@@ -56,7 +61,6 @@ async function getChatResponseStreamGoogle(
   const apiKey = config.apiKey;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-  // Convert OpenAI-style messages to Gemini format
   const systemMsg = messages.find((m) => m.role === "system");
   const chatMsgs = messages.filter((m) => m.role !== "system");
 
@@ -65,7 +69,10 @@ async function getChatResponseStreamGoogle(
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     })),
-    generationConfig: { maxOutputTokens: 300 },
+    generationConfig: {
+      maxOutputTokens: MAX_TOKENS,
+      temperature: TEMPERATURE,
+    },
   };
 
   if (systemMsg) {
@@ -99,8 +106,7 @@ async function getChatResponseStreamGoogle(
             if (!data || data === "[DONE]") continue;
             try {
               const json = JSON.parse(data);
-              const text =
-                json?.candidates?.[0]?.content?.parts?.[0]?.text;
+              const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
               if (text) controller.enqueue(text);
             } catch (_) {}
           }
@@ -115,7 +121,9 @@ async function getChatResponseStreamGoogle(
   });
 }
 
-// OpenAI-compatible streaming (Groq, Mistral, OpenRouter, Fireworks, Ollama, LMStudio)
+// ── OpenAI-compatible streaming ───────────────────────────────────────────────
+// Groq, Mistral, OpenRouter, Fireworks, Ollama, LMStudio
+
 async function getChatResponseStreamOpenAICompat(
   messages: Message[],
   config: AIProviderConfig
@@ -133,12 +141,23 @@ async function getChatResponseStreamOpenAICompat(
   const body: Record<string, unknown> = {
     messages,
     stream: true,
-    max_tokens: 300,
+    max_tokens: MAX_TOKENS,
+    temperature: TEMPERATURE,
   };
 
   // model is required for all except lmstudio (uses whatever is loaded)
   if (config.provider !== "lmstudio" || model) {
     body.model = model;
+  }
+
+  // Groq-specific: enforce JSON-safe streaming
+  if (config.provider === "groq") {
+    body.stream_options = { include_usage: false };
+  }
+
+  // OpenRouter-specific: set a reasonable context window
+  if (config.provider === "openrouter") {
+    body.max_tokens = MAX_TOKENS;
   }
 
   const res = await fetch(url, {
@@ -157,21 +176,44 @@ async function getChatResponseStreamOpenAICompat(
   return new ReadableStream({
     async start(controller) {
       const decoder = new TextDecoder("utf-8");
+      let buffer = "";
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const data = decoder.decode(value);
-          const chunks = data
-            .split("data:")
-            .map((s) => s.trim())
-            .filter((s) => s && s !== "[DONE]");
-          for (const chunk of chunks) {
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          // Keep the last (potentially incomplete) line in the buffer
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice("data:".length).trim();
+            if (!data || data === "[DONE]") continue;
             try {
-              const json = JSON.parse(chunk);
+              const json = JSON.parse(data);
               const piece = json?.choices?.[0]?.delta?.content;
               if (piece) controller.enqueue(piece);
-            } catch (_) {}
+            } catch (_) {
+              // Partial JSON chunk — skip, will be retried with buffer
+            }
+          }
+        }
+
+        // Flush remaining buffer
+        if (buffer.trim() && buffer.trim() !== "data: [DONE]") {
+          const trimmed = buffer.trim();
+          if (trimmed.startsWith("data:")) {
+            const data = trimmed.slice("data:".length).trim();
+            if (data && data !== "[DONE]") {
+              try {
+                const json = JSON.parse(data);
+                const piece = json?.choices?.[0]?.delta?.content;
+                if (piece) controller.enqueue(piece);
+              } catch (_) {}
+            }
           }
         }
       } catch (e) {
@@ -214,6 +256,10 @@ export async function getChatResponse(
         role: m.role === "assistant" ? "model" : "user",
         parts: [{ text: m.content }],
       })),
+      generationConfig: {
+        maxOutputTokens: MAX_TOKENS,
+        temperature: TEMPERATURE,
+      },
     };
     if (systemMsg) {
       body.systemInstruction = { parts: [{ text: systemMsg.content }] };
@@ -225,7 +271,8 @@ export async function getChatResponse(
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    const message = data?.candidates?.[0]?.content?.parts?.[0]?.text || "An error occurred.";
+    const message =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text || "An error occurred.";
     return { message };
   }
 
@@ -237,7 +284,11 @@ export async function getChatResponse(
     ...getExtraHeaders(config),
   };
 
-  const body: Record<string, unknown> = { messages };
+  const body: Record<string, unknown> = {
+    messages,
+    max_tokens: MAX_TOKENS,
+    temperature: TEMPERATURE,
+  };
   if (config.provider !== "lmstudio" || config.model) {
     body.model = config.model || "";
   }
@@ -248,6 +299,7 @@ export async function getChatResponse(
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  const message = data?.choices?.[0]?.message?.content || "An error occurred.";
+  const message =
+    data?.choices?.[0]?.message?.content || "An error occurred.";
   return { message };
 }
