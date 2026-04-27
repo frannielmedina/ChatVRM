@@ -1,6 +1,6 @@
 import { IconButton } from "./iconButton";
 import { Message } from "@/features/messages/messages";
-import { ChatLog } from "./chatLog";
+import { ChatLogDialog } from "./chatLogDialog";
 import React, { useCallback, useContext, useRef, useState } from "react";
 import { Settings } from "./settings";
 import { ViewerContext } from "@/features/vrmViewer/viewerContext";
@@ -12,6 +12,7 @@ import { AIProviderConfig } from "@/features/chat/aiProviders";
 import { BackgroundConfig } from "@/features/background/backgroundConfig";
 import { KoeiroParam } from "@/features/constants/koeiroParam";
 import { SettingsSnapshot } from "@/features/settings/settingsPorter";
+import { CaptionStyle } from "./captionSettings";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -24,6 +25,7 @@ type Props = {
   twitchConnected: boolean;
   screenShareConfig: ScreenShareConfig;
   backgroundConfig: BackgroundConfig;
+  captionStyle: CaptionStyle;
   uiVisible: boolean;
   onChangeSystemPrompt: (systemPrompt: string) => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
@@ -39,6 +41,7 @@ type Props = {
   onScreenShareStart: () => void;
   onScreenShareStop: () => void;
   onChangeBackgroundConfig: (config: BackgroundConfig) => void;
+  onChangeCaptionStyle: (style: CaptionStyle) => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
 };
 
@@ -53,6 +56,7 @@ export const Menu = ({
   twitchConnected,
   screenShareConfig,
   backgroundConfig,
+  captionStyle,
   uiVisible,
   onChangeSystemPrompt,
   onChangeAiConfig,
@@ -68,6 +72,7 @@ export const Menu = ({
   onScreenShareStart,
   onScreenShareStop,
   onChangeBackgroundConfig,
+  onChangeCaptionStyle,
   onLoadSettings,
 }: Props) => {
   const [showSettings, setShowSettings] = useState(false);
@@ -118,22 +123,14 @@ export const Menu = ({
             isProcessing={false}
             onClick={() => setShowSettings(true)}
           />
-          {showChatLog ? (
-            <IconButton
-              iconName="24/CommentOutline"
-              label="Chat Log"
-              isProcessing={false}
-              onClick={() => setShowChatLog(false)}
-            />
-          ) : (
-            <IconButton
-              iconName="24/CommentFill"
-              label="Chat Log"
-              isProcessing={false}
-              disabled={chatLog.length <= 0}
-              onClick={() => setShowChatLog(true)}
-            />
-          )}
+          {/* Chat Log — now opens dialog */}
+          <IconButton
+            iconName={showChatLog ? "24/CommentFill" : "24/CommentOutline"}
+            label="Chat Log"
+            isProcessing={false}
+            disabled={chatLog.length <= 0}
+            onClick={() => setShowChatLog(true)}
+          />
           {twitchConnected && (
             <div className="flex items-center gap-4 px-12 py-8 bg-[#9146FF]/20 border border-[#9146FF]/40 rounded-16 text-[#9146FF] text-sm font-bold">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="#9146FF">
@@ -153,7 +150,13 @@ export const Menu = ({
         </div>
       </div>
 
-      {showChatLog && <ChatLog messages={chatLog} />}
+      {/* Chat Log Dialog (modal) */}
+      {showChatLog && (
+        <ChatLogDialog
+          messages={chatLog}
+          onClose={() => setShowChatLog(false)}
+        />
+      )}
 
       {showSettings && (
         <Settings
@@ -166,6 +169,7 @@ export const Menu = ({
           twitchConnected={twitchConnected}
           screenShareConfig={screenShareConfig}
           backgroundConfig={backgroundConfig}
+          captionStyle={captionStyle}
           onClickClose={() => setShowSettings(false)}
           onChangeAiConfig={onChangeAiConfig}
           onChangeSystemPrompt={handleChangeSystemPrompt}
@@ -182,12 +186,14 @@ export const Menu = ({
           onScreenShareStart={onScreenShareStart}
           onScreenShareStop={onScreenShareStop}
           onChangeBackgroundConfig={onChangeBackgroundConfig}
+          onChangeCaptionStyle={onChangeCaptionStyle}
           onLoadSettings={onLoadSettings}
         />
       )}
 
+      {/* Caption — shown when not in dialog and there is a message */}
       {!showChatLog && assistantMessage && (
-        <AssistantText message={assistantMessage} />
+        <AssistantText message={assistantMessage} captionStyle={captionStyle} />
       )}
 
       <input

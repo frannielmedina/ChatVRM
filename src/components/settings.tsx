@@ -7,6 +7,7 @@ import { TwitchSettings } from "./twitchSettings";
 import { ScreenShareSettings } from "./screenShareSettings";
 import { AIProviderSettings } from "./aiProviderSettings";
 import { BackgroundSettings } from "./backgroundSettings";
+import { CaptionSettings } from "./captionSettings";
 import { SettingsPorter } from "./settingsPorter";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
@@ -15,6 +16,7 @@ import { AIProviderConfig } from "@/features/chat/aiProviders";
 import { BackgroundConfig } from "@/features/background/backgroundConfig";
 import { KoeiroParam } from "@/features/constants/koeiroParam";
 import { SettingsSnapshot } from "@/features/settings/settingsPorter";
+import { CaptionStyle } from "./captionSettings";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -26,6 +28,7 @@ type Props = {
   twitchConnected: boolean;
   screenShareConfig: ScreenShareConfig;
   backgroundConfig: BackgroundConfig;
+  captionStyle: CaptionStyle;
   onClickClose: () => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
   onChangeSystemPrompt: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -42,6 +45,7 @@ type Props = {
   onScreenShareStart: () => void;
   onScreenShareStop: () => void;
   onChangeBackgroundConfig: (config: BackgroundConfig) => void;
+  onChangeCaptionStyle: (style: CaptionStyle) => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
 };
 
@@ -55,6 +59,7 @@ export const Settings = ({
   twitchConnected,
   screenShareConfig,
   backgroundConfig,
+  captionStyle,
   onClickClose,
   onChangeSystemPrompt,
   onChangeAiConfig,
@@ -71,6 +76,7 @@ export const Settings = ({
   onScreenShareStart,
   onScreenShareStop,
   onChangeBackgroundConfig,
+  onChangeCaptionStyle,
   onLoadSettings,
 }: Props) => {
   return (
@@ -86,7 +92,7 @@ export const Settings = ({
         <div className="text-text1 max-w-3xl mx-auto px-24 py-64">
           <div className="my-24 typography-32 font-bold">Settings</div>
 
-          {/* ── Save / Load ────────────────────────────────────────────────── */}
+          {/* ── Save / Load ──────────────────────────────────────────────── */}
           <SettingsPorter
             systemPrompt={systemPrompt}
             aiConfig={aiConfig}
@@ -98,19 +104,25 @@ export const Settings = ({
 
           <div className="border-t border-surface3 my-32" />
 
-          {/* ── AI Provider ───────────────────────────────────────────────── */}
+          {/* ── AI Provider ─────────────────────────────────────────────── */}
           <AIProviderSettings
             config={aiConfig}
             onChangeConfig={onChangeAiConfig}
           />
 
-          {/* ── Background ────────────────────────────────────────────────── */}
+          {/* ── Background ──────────────────────────────────────────────── */}
           <BackgroundSettings
             config={backgroundConfig}
             onChangeConfig={onChangeBackgroundConfig}
           />
 
-          {/* ── VRM model ─────────────────────────────────────────────────── */}
+          {/* ── Caption / Subtitles ─────────────────────────────────────── */}
+          <CaptionSettings
+            style={captionStyle}
+            onChangeStyle={onChangeCaptionStyle}
+          />
+
+          {/* ── VRM model ───────────────────────────────────────────────── */}
           <div className="my-40">
             <div className="my-16 typography-20 font-bold">Character Model</div>
             <div className="my-8">
@@ -118,7 +130,7 @@ export const Settings = ({
             </div>
           </div>
 
-          {/* ── System prompt ─────────────────────────────────────────────── */}
+          {/* ── System prompt ───────────────────────────────────────────── */}
           <div className="my-40">
             <div className="my-8">
               <div className="my-16 typography-20 font-bold">
@@ -135,7 +147,7 @@ export const Settings = ({
             />
           </div>
 
-          {/* ── TTS ───────────────────────────────────────────────────────── */}
+          {/* ── TTS ─────────────────────────────────────────────────────── */}
           <TTSSettings
             ttsConfig={ttsConfig}
             onChangeTTSConfig={onChangeTTSConfig}
@@ -143,7 +155,7 @@ export const Settings = ({
             onChangeKoeiroParam={onChangeKoeiroParam}
           />
 
-          {/* ── Twitch ────────────────────────────────────────────────────── */}
+          {/* ── Twitch ──────────────────────────────────────────────────── */}
           <TwitchSettings
             config={twitchConfig}
             isConnected={twitchConnected}
@@ -152,7 +164,7 @@ export const Settings = ({
             onDisconnect={onTwitchDisconnect}
           />
 
-          {/* ── Screen Share ──────────────────────────────────────────────── */}
+          {/* ── Screen Share ────────────────────────────────────────────── */}
           <ScreenShareSettings
             config={screenShareConfig}
             onChangeConfig={onChangeScreenShareConfig}
@@ -160,7 +172,7 @@ export const Settings = ({
             onStop={onScreenShareStop}
           />
 
-          {/* ── Chat log ──────────────────────────────────────────────────── */}
+          {/* ── Chat log ────────────────────────────────────────────────── */}
           {chatLog.length > 0 && (
             <div className="my-40">
               <div className="my-8">
