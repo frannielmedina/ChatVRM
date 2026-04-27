@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type CaptionLine = {
   id: number;
@@ -18,7 +18,7 @@ export type CaptionStyle = {
   position: "bottom" | "top" | "middle";
   typewriterSpeed: number;
   lingerDuration: number;
-  maxLines: number; // NEW: rolling window size (1–5)
+  maxLines: number;
 };
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
@@ -33,7 +33,7 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   position: "bottom",
   typewriterSpeed: 18,
   lingerDuration: 5000,
-  maxLines: 3, // default: rolling 3 lines
+  maxLines: 3,
 };
 
 type Props = {
@@ -41,118 +41,116 @@ type Props = {
   captionStyle?: CaptionStyle;
 };
 
-let lineIdCounter = 0;
-
+/**
+ * Caption / subtitle display — behaves like a real subtitle overlay:
+ *
+ * - Each new AI response REPLACES the previous caption entirely.
+ * - The full response text is rendered as one block, CSS word-wrapped.
+ * - A typewriter effect runs on the complete text character by character.
+ * - After typing finishes the caption lingers, then fades out smoothly.
+ * - On a new message: old caption fades out quickly, new one fades in.
+ * - `maxLines` clamps visible height via -webkit-line-clamp (no stacking).
+ */
 export const AssistantText = ({
   message,
   captionStyle = DEFAULT_CAPTION_STYLE,
 }: Props) => {
-  const maxLines = captionStyle.maxLines ?? 3;
+  const [displayed, setDisplayed] = useState("");
+  const [opacity, setOpacity] = useState(0);
+  const [visible, setVisible] = useState(false);
 
-  // Each entry: { id, text, displayed, isTyping, visible }
-  const [lines, setLines] = useState<
-    {
-      id: number;
-      text: string;
-      displayed: string;
-      isTyping: boolean;
-      visible: boolean;
-    }[]
-  >([]);
-
-  const lingerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestLineIdRef = useRef<number | null>(null);
+  const lingerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Used to cancel stale typewriter closures when message changes mid-animation
+  const currentMsgRef = useRef("");
+  const isVisibleRef = useRef(false);
 
   const cleanMessage = message.replace(/\[([a-zA-Z]*?)\]/g, "").trim();
 
-  // When a new message arrives, add it as a new line and trim old ones
-  useEffect(() => {
-    if (!cleanMessage) {
-      setLines([]);
-      return;
-    }
+  const clearAllTimers = () => {
+    if (typeTimerRef.current) { clearTimeout(typeTimerRef.current); typeTimerRef.current = null; }
+    if (lingerTimerRef.current) { clearTimeout(lingerTimerRef.current); lingerTimerRef.current = null; }
+    if (fadeOutTimerRef.current) { clearTimeout(fadeOutTimerRef.current); fadeOutTimerRef.current = null; }
+  };
 
-    // Clear any pending linger/typewriter for previous lines
-    if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
-    if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+  const scheduleLinger = (text: string) => {
+    if (captionStyle.lingerDuration <= 0) return; // stay until next message
+    lingerTimerRef.current = setTimeout(() => {
+      if (currentMsgRef.current !== text) return; // already replaced
+      setOpacity(0);
+      fadeOutTimerRef.current = setTimeout(() => {
+        if (currentMsgRef.current !== text) return;
+        setVisible(false);
+        isVisibleRef.current = false;
+        setDisplayed("");
+      }, 500);
+    }, captionStyle.lingerDuration);
+  };
 
-    const newId = ++lineIdCounter;
-    latestLineIdRef.current = newId;
+  const startTyping = (text: string) => {
+    currentMsgRef.current = text;
+    setDisplayed("");
+    setVisible(true);
+    isVisibleRef.current = true;
 
-    setLines((prev) => {
-      // Keep only the last (maxLines - 1) visible lines, add new one
-      const kept = prev.slice(-(maxLines - 1));
-      return [
-        ...kept,
-        { id: newId, text: cleanMessage, displayed: "", isTyping: true, visible: true },
-      ];
+    // Small delay so React can mount the element before fading in
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setOpacity(1));
     });
 
-    // Typewriter effect for the new line
     const speed = captionStyle.typewriterSpeed;
 
     if (speed === 0) {
-      setLines((prev) =>
-        prev.map((l) =>
-          l.id === newId ? { ...l, displayed: cleanMessage, isTyping: false } : l
-        )
-      );
-      scheduleLinger(newId);
+      setDisplayed(text);
+      scheduleLinger(text);
       return;
     }
 
     let i = 0;
     const tick = () => {
+      if (currentMsgRef.current !== text) return; // stale, abort
       i++;
-      const slice = cleanMessage.slice(0, i);
-      setLines((prev) =>
-        prev.map((l) =>
-          l.id === newId ? { ...l, displayed: slice } : l
-        )
-      );
-      if (i < cleanMessage.length) {
+      setDisplayed(text.slice(0, i));
+      if (i < text.length) {
         typeTimerRef.current = setTimeout(tick, speed);
       } else {
-        setLines((prev) =>
-          prev.map((l) =>
-            l.id === newId ? { ...l, isTyping: false } : l
-          )
-        );
-        scheduleLinger(newId);
+        scheduleLinger(text);
       }
     };
     typeTimerRef.current = setTimeout(tick, speed);
+  };
 
-    return () => {
-      if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
-      if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
-    };
+  useEffect(() => {
+    if (!cleanMessage) {
+      clearAllTimers();
+      currentMsgRef.current = "";
+      setOpacity(0);
+      fadeOutTimerRef.current = setTimeout(() => {
+        setVisible(false);
+        isVisibleRef.current = false;
+        setDisplayed("");
+      }, 500);
+      return clearAllTimers;
+    }
+
+    clearAllTimers();
+
+    if (isVisibleRef.current) {
+      // Fade out the old caption first, then start the new one
+      setOpacity(0);
+      fadeOutTimerRef.current = setTimeout(() => {
+        startTyping(cleanMessage);
+      }, 300);
+    } else {
+      startTyping(cleanMessage);
+    }
+
+    return clearAllTimers;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cleanMessage]);
 
-  // When maxLines changes, trim existing lines
-  useEffect(() => {
-    setLines((prev) => prev.slice(-maxLines));
-  }, [maxLines]);
-
-  const scheduleLinger = useCallback(
-    (id: number) => {
-      if (captionStyle.lingerDuration <= 0) return; // stay forever
-      lingerTimerRef.current = setTimeout(() => {
-        setLines((prev) =>
-          prev.map((l) => (l.id === id ? { ...l, visible: false } : l))
-        );
-        // After fade, remove from DOM
-        setTimeout(() => {
-          setLines((prev) => prev.filter((l) => l.id !== id));
-        }, 750);
-      }, captionStyle.lingerDuration);
-    },
-    [captionStyle.lingerDuration]
-  );
-
-  if (lines.length === 0) return null;
+  if (!visible) return null;
 
   const positionClass =
     captionStyle.position === "top"
@@ -164,67 +162,49 @@ export const AssistantText = ({
   const textShadow = [
     `0 0 ${captionStyle.shadowBlur}px ${captionStyle.shadowColor}`,
     `0 2px 4px rgba(0,0,0,0.8)`,
-    `${captionStyle.strokeWidth / 3}px 0 0 ${captionStyle.strokeColor}`,
-    `-${captionStyle.strokeWidth / 3}px 0 0 ${captionStyle.strokeColor}`,
-    `0 ${captionStyle.strokeWidth / 3}px 0 ${captionStyle.strokeColor}`,
-    `0 -${captionStyle.strokeWidth / 3}px 0 ${captionStyle.strokeColor}`,
   ].join(", ");
-
-  const strokeStyle: React.CSSProperties = {
-    WebkitTextStroke: `${captionStyle.strokeWidth}px ${captionStyle.strokeColor}`,
-    paintOrder: "stroke fill",
-  };
 
   return (
     <div
-      className={`absolute left-0 right-0 z-30 flex justify-center pointer-events-none px-16 ${positionClass}`}
+      className={`absolute left-0 right-0 z-30 flex justify-center pointer-events-none px-24 ${positionClass}`}
+      style={{ opacity, transition: "opacity 0.3s ease" }}
     >
       <div
-        className="max-w-3xl w-full flex flex-col items-center gap-1"
         style={{
+          maxWidth: "700px",
+          width: "100%",
           background:
             captionStyle.bgOpacity > 0
               ? `rgba(0,0,0,${captionStyle.bgOpacity})`
               : "transparent",
           borderRadius: captionStyle.bgOpacity > 0 ? "8px" : undefined,
-          padding: captionStyle.bgOpacity > 0 ? "8px 16px" : undefined,
+          padding: captionStyle.bgOpacity > 0 ? "8px 20px" : undefined,
         }}
       >
-        {lines.map((line, idx) => {
-          // Older lines are more faded
-          const isNewest = idx === lines.length - 1;
-          const age = lines.length - 1 - idx; // 0 = newest
-          const ageOpacity = isNewest ? 1 : Math.max(0.35, 1 - age * 0.25);
-
-          return (
-            <p
-              key={line.id}
-              style={{
-                fontSize: `${captionStyle.fontSize}px`,
-                fontFamily: `'${captionStyle.fontFamily}', 'M PLUS 2', sans-serif`,
-                fontWeight: 800,
-                color: captionStyle.textColor,
-                textShadow,
-                lineHeight: 1.35,
-                letterSpacing: "0.01em",
-                textAlign: "center",
-                opacity: line.visible ? ageOpacity : 0,
-                transition: "opacity 0.7s ease",
-                ...strokeStyle,
-              }}
-            >
-              {line.displayed}
-              {line.isTyping && (
-                <span
-                  className="inline-block animate-pulse"
-                  style={{ opacity: 0.7, marginLeft: 2 }}
-                >
-                  ▌
-                </span>
-              )}
-            </p>
-          );
-        })}
+        <p
+          style={{
+            fontSize: `${captionStyle.fontSize}px`,
+            fontFamily: `'${captionStyle.fontFamily}', 'M PLUS 2', sans-serif`,
+            fontWeight: 800,
+            color: captionStyle.textColor,
+            textShadow,
+            WebkitTextStroke: `${captionStyle.strokeWidth}px ${captionStyle.strokeColor}`,
+            paintOrder: "stroke fill",
+            lineHeight: 1.4,
+            letterSpacing: "0.01em",
+            textAlign: "center",
+            // Clamp to maxLines — no manual line-stacking needed
+            display: "-webkit-box",
+            WebkitLineClamp: captionStyle.maxLines,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            wordBreak: "break-word",
+            whiteSpace: "pre-wrap",
+            margin: 0,
+          } as React.CSSProperties}
+        >
+          {displayed}
+        </p>
       </div>
     </div>
   );
