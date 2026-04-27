@@ -41,116 +41,122 @@ type Props = {
   captionStyle?: CaptionStyle;
 };
 
-/**
- * Caption / subtitle display — behaves like a real subtitle overlay:
- *
- * - Each new AI response REPLACES the previous caption entirely.
- * - The full response text is rendered as one block, CSS word-wrapped.
- * - A typewriter effect runs on the complete text character by character.
- * - After typing finishes the caption lingers, then fades out smoothly.
- * - On a new message: old caption fades out quickly, new one fades in.
- * - `maxLines` clamps visible height via -webkit-line-clamp (no stacking).
- */
 export const AssistantText = ({
   message,
   captionStyle = DEFAULT_CAPTION_STYLE,
 }: Props) => {
   const [displayed, setDisplayed] = useState("");
-  const [opacity, setOpacity] = useState(0);
-  const [visible, setVisible] = useState(false);
+  // "hidden" = not rendered, "in" = opacity 1, "out" = opacity 0 (transitioning)
+  const [phase, setPhase] = useState<"hidden" | "in" | "out">("hidden");
 
-  const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lingerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Used to cancel stale typewriter closures when message changes mid-animation
-  const currentMsgRef = useRef("");
-  const isVisibleRef = useRef(false);
+  // Keep captionStyle always fresh inside callbacks
+  const styleRef = useRef(captionStyle);
+  useEffect(() => { styleRef.current = captionStyle; }, [captionStyle]);
+
+  const timerType = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerLinger = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerFade = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Shared mutable state that closures read from refs, not stale captures
+  const phaseRef = useRef<"hidden" | "in" | "out">("hidden");
+  const activeTextRef = useRef<string>("");
+  const abortRef = useRef<boolean>(false);
 
   const cleanMessage = message.replace(/\[([a-zA-Z]*?)\]/g, "").trim();
 
-  const clearAllTimers = () => {
-    if (typeTimerRef.current) { clearTimeout(typeTimerRef.current); typeTimerRef.current = null; }
-    if (lingerTimerRef.current) { clearTimeout(lingerTimerRef.current); lingerTimerRef.current = null; }
-    if (fadeOutTimerRef.current) { clearTimeout(fadeOutTimerRef.current); fadeOutTimerRef.current = null; }
+  const clearTimers = () => {
+    if (timerType.current) { clearTimeout(timerType.current); timerType.current = null; }
+    if (timerLinger.current) { clearTimeout(timerLinger.current); timerLinger.current = null; }
+    if (timerFade.current) { clearTimeout(timerFade.current); timerFade.current = null; }
   };
 
-  const scheduleLinger = (text: string) => {
-    if (captionStyle.lingerDuration <= 0) return; // stay until next message
-    lingerTimerRef.current = setTimeout(() => {
-      if (currentMsgRef.current !== text) return; // already replaced
-      setOpacity(0);
-      fadeOutTimerRef.current = setTimeout(() => {
-        if (currentMsgRef.current !== text) return;
-        setVisible(false);
-        isVisibleRef.current = false;
-        setDisplayed("");
-      }, 500);
-    }, captionStyle.lingerDuration);
+  const goHidden = () => {
+    phaseRef.current = "hidden";
+    setPhase("hidden");
+    setDisplayed("");
+    activeTextRef.current = "";
+  };
+
+  const goOut = (then: () => void) => {
+    phaseRef.current = "out";
+    setPhase("out");
+    timerFade.current = setTimeout(then, 320);
+  };
+
+  const goIn = () => {
+    phaseRef.current = "in";
+    setPhase("in");
   };
 
   const startTyping = (text: string) => {
-    currentMsgRef.current = text;
+    abortRef.current = false;
+    activeTextRef.current = text;
     setDisplayed("");
-    setVisible(true);
-    isVisibleRef.current = true;
+    goIn();
 
-    // Small delay so React can mount the element before fading in
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => setOpacity(1));
-    });
-
-    const speed = captionStyle.typewriterSpeed;
+    const speed = styleRef.current.typewriterSpeed;
 
     if (speed === 0) {
       setDisplayed(text);
-      scheduleLinger(text);
+      startLinger(text);
       return;
     }
 
     let i = 0;
     const tick = () => {
-      if (currentMsgRef.current !== text) return; // stale, abort
+      if (abortRef.current) return;
       i++;
       setDisplayed(text.slice(0, i));
       if (i < text.length) {
-        typeTimerRef.current = setTimeout(tick, speed);
+        timerType.current = setTimeout(tick, speed);
       } else {
-        scheduleLinger(text);
+        startLinger(text);
       }
     };
-    typeTimerRef.current = setTimeout(tick, speed);
+    timerType.current = setTimeout(tick, speed);
+  };
+
+  const startLinger = (text: string) => {
+    const dur = styleRef.current.lingerDuration;
+    if (dur <= 0) return; // stay forever until next message
+    timerLinger.current = setTimeout(() => {
+      if (activeTextRef.current !== text) return;
+      goOut(() => {
+        if (activeTextRef.current !== text) return;
+        goHidden();
+      });
+    }, dur);
   };
 
   useEffect(() => {
+    // Stop everything in progress
+    abortRef.current = true;
+    clearTimers();
+
     if (!cleanMessage) {
-      clearAllTimers();
-      currentMsgRef.current = "";
-      setOpacity(0);
-      fadeOutTimerRef.current = setTimeout(() => {
-        setVisible(false);
-        isVisibleRef.current = false;
-        setDisplayed("");
-      }, 500);
-      return clearAllTimers;
+      if (phaseRef.current !== "hidden") {
+        goOut(() => goHidden());
+      }
+      return () => { abortRef.current = true; clearTimers(); };
     }
 
-    clearAllTimers();
-
-    if (isVisibleRef.current) {
-      // Fade out the old caption first, then start the new one
-      setOpacity(0);
-      fadeOutTimerRef.current = setTimeout(() => {
-        startTyping(cleanMessage);
-      }, 300);
-    } else {
+    if (phaseRef.current === "hidden") {
+      // Nothing showing — start right away
       startTyping(cleanMessage);
+    } else {
+      // Something is on screen — fade it out then start new
+      goOut(() => {
+        goHidden();
+        startTyping(cleanMessage);
+      });
     }
 
-    return clearAllTimers;
+    return () => { abortRef.current = true; clearTimers(); };
+    // cleanMessage is the only real trigger; style changes handled via styleRef
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cleanMessage]);
 
-  if (!visible) return null;
+  if (phase === "hidden") return null;
 
   const positionClass =
     captionStyle.position === "top"
@@ -164,10 +170,15 @@ export const AssistantText = ({
     `0 2px 4px rgba(0,0,0,0.8)`,
   ].join(", ");
 
+  const maxHeightPx = captionStyle.fontSize * 1.4 * captionStyle.maxLines;
+
   return (
     <div
       className={`absolute left-0 right-0 z-30 flex justify-center pointer-events-none px-24 ${positionClass}`}
-      style={{ opacity, transition: "opacity 0.3s ease" }}
+      style={{
+        opacity: phase === "in" ? 1 : 0,
+        transition: "opacity 0.3s ease",
+      }}
     >
       <div
         style={{
@@ -193,13 +204,10 @@ export const AssistantText = ({
             lineHeight: 1.4,
             letterSpacing: "0.01em",
             textAlign: "center",
-            // Clamp to maxLines — no manual line-stacking needed
-            display: "-webkit-box",
-            WebkitLineClamp: captionStyle.maxLines,
-            WebkitBoxOrient: "vertical",
+            maxHeight: `${maxHeightPx}px`,
             overflow: "hidden",
             wordBreak: "break-word",
-            whiteSpace: "pre-wrap",
+            whiteSpace: "normal",
             margin: 0,
           } as React.CSSProperties}
         >
