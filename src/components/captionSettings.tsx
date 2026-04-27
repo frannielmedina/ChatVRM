@@ -1,5 +1,7 @@
 import React, { useCallback } from "react";
-import { DEFAULT_CAPTION_STYLE } from "./assistantText";
+import { DEFAULT_CAPTION_STYLE as _DEFAULT_CAPTION_STYLE } from "./assistantText";
+
+export { DEFAULT_CAPTION_STYLE } from "./assistantText";
 
 export type CaptionStyle = {
   fontSize: number;
@@ -214,7 +216,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
 
         {/* Reset button */}
         <button
-          onClick={() => onChangeStyle({ ...DEFAULT_CAPTION_STYLE })}
+          onClick={() => onChangeStyle({ ..._DEFAULT_CAPTION_STYLE })}
           className="px-16 py-6 rounded-8 border-2 border-surface3 bg-surface3 hover:border-primary/40 text-sm font-bold self-start"
         >
           Reset to Defaults
