@@ -11,6 +11,7 @@ type CaptionStyle = {
   bgOpacity: number; // 0 = transparent, 1 = full
   position: "bottom" | "top" | "middle";
   typewriterSpeed: number; // ms per char, 0 = instant
+  lingerDuration: number; // ms to stay visible after typing finishes, 0 = stay forever
 };
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
@@ -24,6 +25,7 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   bgOpacity: 0,
   position: "bottom",
   typewriterSpeed: 18,
+  lingerDuration: 5000,
 };
 
 type Props = {
@@ -37,17 +39,40 @@ export const AssistantText = ({
 }: Props) => {
   const [displayed, setDisplayed] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [visible, setVisible] = useState(true);
+  const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lingerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const cleanMessage = message.replace(/\[([a-zA-Z]*?)\]/g, "").trim();
 
-  // Typewriter effect
+  // Typewriter effect + linger
   useEffect(() => {
+    // Clear any pending timers
+    if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+    if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
+
     if (!cleanMessage) {
       setDisplayed("");
+      setVisible(true);
       return;
     }
+
+    // A new message always resets visibility
+    setVisible(true);
+
+    const scheduleLingerAndFade = () => {
+      setIsTyping(false);
+      if (captionStyle.lingerDuration > 0) {
+        lingerTimerRef.current = setTimeout(() => {
+          setVisible(false);
+        }, captionStyle.lingerDuration);
+      }
+      // lingerDuration === 0 means stay on screen forever (until next message)
+    };
+
     if (captionStyle.typewriterSpeed === 0) {
       setDisplayed(cleanMessage);
+      scheduleLingerAndFade();
       return;
     }
 
@@ -59,18 +84,39 @@ export const AssistantText = ({
       i++;
       setDisplayed(cleanMessage.slice(0, i));
       if (i < cleanMessage.length) {
-        timerRef.current = setTimeout(tick, captionStyle.typewriterSpeed);
+        typeTimerRef.current = setTimeout(tick, captionStyle.typewriterSpeed);
       } else {
-        setIsTyping(false);
+        scheduleLingerAndFade();
       }
     };
 
-    timerRef.current = setTimeout(tick, captionStyle.typewriterSpeed);
+    typeTimerRef.current = setTimeout(tick, captionStyle.typewriterSpeed);
+
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+      if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cleanMessage]);
+
+  // Re-arm linger timer when lingerDuration setting changes mid-display
+  useEffect(() => {
+    if (!cleanMessage || isTyping) return;
+    if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
+
+    setVisible(true);
+
+    if (captionStyle.lingerDuration > 0) {
+      lingerTimerRef.current = setTimeout(() => {
+        setVisible(false);
+      }, captionStyle.lingerDuration);
+    }
+
+    return () => {
+      if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captionStyle.lingerDuration]);
 
   if (!cleanMessage) return null;
 
@@ -90,7 +136,6 @@ export const AssistantText = ({
     `0 -${captionStyle.strokeWidth / 3}px 0 ${captionStyle.strokeColor}`,
   ].join(", ");
 
-  // SVG text stroke via CSS paint-order + webkit-text-stroke
   const strokeStyle: React.CSSProperties = {
     WebkitTextStroke: `${captionStyle.strokeWidth}px ${captionStyle.strokeColor}`,
     paintOrder: "stroke fill",
@@ -98,7 +143,8 @@ export const AssistantText = ({
 
   return (
     <div
-      className={`absolute left-0 right-0 z-30 flex justify-center pointer-events-none px-16 ${positionClass}`}
+      className={`absolute left-0 right-0 z-30 flex justify-center pointer-events-none px-16 ${positionClass} transition-opacity duration-700`}
+      style={{ opacity: visible ? 1 : 0 }}
     >
       <div
         className="max-w-3xl w-full flex justify-center"

@@ -14,6 +14,7 @@ export type CaptionStyle = {
   bgOpacity: number;
   position: "bottom" | "top" | "middle";
   typewriterSpeed: number;
+  lingerDuration: number; // ms to stay on screen after typing, 0 = forever
 };
 
 type Props = {
@@ -37,11 +38,20 @@ const POSITION_OPTIONS: { value: CaptionStyle["position"]; label: string }[] = [
   { value: "top", label: "⬆ Top" },
 ];
 
+const LINGER_PRESETS: { label: string; value: number }[] = [
+  { label: "2s", value: 2000 },
+  { label: "5s", value: 5000 },
+  { label: "10s", value: 10000 },
+  { label: "∞", value: 0 },
+];
+
 export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
   const update = useCallback(
     (partial: Partial<CaptionStyle>) => onChangeStyle({ ...style, ...partial }),
     [style, onChangeStyle]
   );
+
+  const lingerSeconds = style.lingerDuration / 1000;
 
   return (
     <div className="my-40">
@@ -212,6 +222,44 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
             onChange={(e) => update({ typewriterSpeed: Number(e.target.value) })}
           />
           <div className="text-xs text-text-primary/50 mt-4">0 = instant, higher = slower typewriter</div>
+        </div>
+
+        {/* Linger duration */}
+        <div>
+          <div className="font-bold mb-4 text-sm flex justify-between">
+            <span>Caption Linger Duration</span>
+            <span className="font-normal text-text-primary/60">
+              {style.lingerDuration === 0 ? "Always visible" : `${lingerSeconds.toFixed(1)}s`}
+            </span>
+          </div>
+
+          {/* Quick preset buttons */}
+          <div className="flex gap-6 mb-8">
+            {LINGER_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => update({ lingerDuration: p.value })}
+                className={`px-12 py-4 rounded-8 text-xs font-bold border-2 transition-all ${
+                  style.lingerDuration === p.value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-surface3 bg-surface3 hover:border-primary/40"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Fine-grained slider (1s–30s) */}
+          <input
+            type="range" min={1} max={30} step={0.5}
+            value={style.lingerDuration === 0 ? 30 : lingerSeconds}
+            className="input-range w-full"
+            onChange={(e) => update({ lingerDuration: Number(e.target.value) * 1000 })}
+          />
+          <div className="text-xs text-text-primary/50 mt-4">
+            How long the caption stays visible after typing finishes. Use ∞ to keep it on screen until the next message arrives.
+          </div>
         </div>
 
         {/* Reset button */}
