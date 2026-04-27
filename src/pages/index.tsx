@@ -210,9 +210,9 @@ export default function Home() {
               const aiTalks = textsToScreenplay([aiText], koeiroParam);
               aiTextLog += aiText;
               sentences.push(remaining);
-              const currentAssistantMessage = sentences.join(" ");
+              // ── FIX: pass only this sentence, not the full joined string ──
               handleSpeakAi(aiTalks[0], () => {
-                setAssistantMessage(currentAssistantMessage);
+                setAssistantMessage(remaining);
               });
             }
             break;
@@ -245,9 +245,9 @@ export default function Home() {
             const aiTalks = textsToScreenplay([aiText], koeiroParam);
             aiTextLog += aiText;
 
-            const currentAssistantMessage = sentences.join(" ");
+            // ── FIX: pass only this sentence, not the full joined string ──
             handleSpeakAi(aiTalks[0], () => {
-              setAssistantMessage(currentAssistantMessage);
+              setAssistantMessage(sentence);
             });
           }
         }
