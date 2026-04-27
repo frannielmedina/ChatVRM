@@ -1,6 +1,12 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
-type CaptionStyle = {
+export type CaptionLine = {
+  id: number;
+  text: string;
+  visible: boolean;
+};
+
+export type CaptionStyle = {
   fontSize: number;
   fontFamily: string;
   textColor: string;
@@ -8,10 +14,11 @@ type CaptionStyle = {
   strokeWidth: number;
   shadowBlur: number;
   shadowColor: string;
-  bgOpacity: number; // 0 = transparent, 1 = full
+  bgOpacity: number;
   position: "bottom" | "top" | "middle";
-  typewriterSpeed: number; // ms per char, 0 = instant
-  lingerDuration: number; // ms to stay visible after typing finishes, 0 = stay forever
+  typewriterSpeed: number;
+  lingerDuration: number;
+  maxLines: number; // NEW: rolling window size (1–5)
 };
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
@@ -26,6 +33,7 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   position: "bottom",
   typewriterSpeed: 18,
   lingerDuration: 5000,
+  maxLines: 3, // default: rolling 3 lines
 };
 
 type Props = {
@@ -33,99 +41,125 @@ type Props = {
   captionStyle?: CaptionStyle;
 };
 
+let lineIdCounter = 0;
+
 export const AssistantText = ({
   message,
   captionStyle = DEFAULT_CAPTION_STYLE,
 }: Props) => {
-  const [displayed, setDisplayed] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [visible, setVisible] = useState(true);
-  const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxLines = captionStyle.maxLines ?? 3;
+
+  // Each entry: { id, text, displayed, isTyping, visible }
+  const [lines, setLines] = useState<
+    {
+      id: number;
+      text: string;
+      displayed: string;
+      isTyping: boolean;
+      visible: boolean;
+    }[]
+  >([]);
+
   const lingerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestLineIdRef = useRef<number | null>(null);
 
   const cleanMessage = message.replace(/\[([a-zA-Z]*?)\]/g, "").trim();
 
-  // Typewriter effect + linger
+  // When a new message arrives, add it as a new line and trim old ones
   useEffect(() => {
-    // Clear any pending timers
-    if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
-    if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
-
     if (!cleanMessage) {
-      setDisplayed("");
-      setVisible(true);
+      setLines([]);
       return;
     }
 
-    // A new message always resets visibility
-    setVisible(true);
+    // Clear any pending linger/typewriter for previous lines
+    if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
+    if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
 
-    const scheduleLingerAndFade = () => {
-      setIsTyping(false);
-      if (captionStyle.lingerDuration > 0) {
-        lingerTimerRef.current = setTimeout(() => {
-          setVisible(false);
-        }, captionStyle.lingerDuration);
-      }
-      // lingerDuration === 0 means stay on screen forever (until next message)
-    };
+    const newId = ++lineIdCounter;
+    latestLineIdRef.current = newId;
 
-    if (captionStyle.typewriterSpeed === 0) {
-      setDisplayed(cleanMessage);
-      scheduleLingerAndFade();
+    setLines((prev) => {
+      // Keep only the last (maxLines - 1) visible lines, add new one
+      const kept = prev.slice(-(maxLines - 1));
+      return [
+        ...kept,
+        { id: newId, text: cleanMessage, displayed: "", isTyping: true, visible: true },
+      ];
+    });
+
+    // Typewriter effect for the new line
+    const speed = captionStyle.typewriterSpeed;
+
+    if (speed === 0) {
+      setLines((prev) =>
+        prev.map((l) =>
+          l.id === newId ? { ...l, displayed: cleanMessage, isTyping: false } : l
+        )
+      );
+      scheduleLinger(newId);
       return;
     }
 
-    setDisplayed("");
-    setIsTyping(true);
     let i = 0;
-
     const tick = () => {
       i++;
-      setDisplayed(cleanMessage.slice(0, i));
+      const slice = cleanMessage.slice(0, i);
+      setLines((prev) =>
+        prev.map((l) =>
+          l.id === newId ? { ...l, displayed: slice } : l
+        )
+      );
       if (i < cleanMessage.length) {
-        typeTimerRef.current = setTimeout(tick, captionStyle.typewriterSpeed);
+        typeTimerRef.current = setTimeout(tick, speed);
       } else {
-        scheduleLingerAndFade();
+        setLines((prev) =>
+          prev.map((l) =>
+            l.id === newId ? { ...l, isTyping: false } : l
+          )
+        );
+        scheduleLinger(newId);
       }
     };
-
-    typeTimerRef.current = setTimeout(tick, captionStyle.typewriterSpeed);
+    typeTimerRef.current = setTimeout(tick, speed);
 
     return () => {
       if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
       if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cleanMessage]);
 
-  // Re-arm linger timer when lingerDuration setting changes mid-display
+  // When maxLines changes, trim existing lines
   useEffect(() => {
-    if (!cleanMessage || isTyping) return;
-    if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
+    setLines((prev) => prev.slice(-maxLines));
+  }, [maxLines]);
 
-    setVisible(true);
-
-    if (captionStyle.lingerDuration > 0) {
+  const scheduleLinger = useCallback(
+    (id: number) => {
+      if (captionStyle.lingerDuration <= 0) return; // stay forever
       lingerTimerRef.current = setTimeout(() => {
-        setVisible(false);
+        setLines((prev) =>
+          prev.map((l) => (l.id === id ? { ...l, visible: false } : l))
+        );
+        // After fade, remove from DOM
+        setTimeout(() => {
+          setLines((prev) => prev.filter((l) => l.id !== id));
+        }, 750);
       }, captionStyle.lingerDuration);
-    }
+    },
+    [captionStyle.lingerDuration]
+  );
 
-    return () => {
-      if (lingerTimerRef.current) clearTimeout(lingerTimerRef.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [captionStyle.lingerDuration]);
-
-  if (!cleanMessage) return null;
+  if (lines.length === 0) return null;
 
   const positionClass =
     captionStyle.position === "top"
       ? "top-24 bottom-auto"
       : captionStyle.position === "middle"
       ? "top-1/2 -translate-y-1/2 bottom-auto"
-      : "bottom-[88px]"; // above the input bar
+      : "bottom-[88px]";
 
   const textShadow = [
     `0 0 ${captionStyle.shadowBlur}px ${captionStyle.shadowColor}`,
@@ -143,11 +177,10 @@ export const AssistantText = ({
 
   return (
     <div
-      className={`absolute left-0 right-0 z-30 flex justify-center pointer-events-none px-16 ${positionClass} transition-opacity duration-700`}
-      style={{ opacity: visible ? 1 : 0 }}
+      className={`absolute left-0 right-0 z-30 flex justify-center pointer-events-none px-16 ${positionClass}`}
     >
       <div
-        className="max-w-3xl w-full flex justify-center"
+        className="max-w-3xl w-full flex flex-col items-center gap-1"
         style={{
           background:
             captionStyle.bgOpacity > 0
@@ -157,29 +190,41 @@ export const AssistantText = ({
           padding: captionStyle.bgOpacity > 0 ? "8px 16px" : undefined,
         }}
       >
-        <p
-          style={{
-            fontSize: `${captionStyle.fontSize}px`,
-            fontFamily: `'${captionStyle.fontFamily}', 'M PLUS 2', sans-serif`,
-            fontWeight: 800,
-            color: captionStyle.textColor,
-            textShadow,
-            lineHeight: 1.35,
-            letterSpacing: "0.01em",
-            textAlign: "center",
-            ...strokeStyle,
-          }}
-        >
-          {displayed}
-          {isTyping && (
-            <span
-              className="inline-block animate-pulse"
-              style={{ opacity: 0.7, marginLeft: 2 }}
+        {lines.map((line, idx) => {
+          // Older lines are more faded
+          const isNewest = idx === lines.length - 1;
+          const age = lines.length - 1 - idx; // 0 = newest
+          const ageOpacity = isNewest ? 1 : Math.max(0.35, 1 - age * 0.25);
+
+          return (
+            <p
+              key={line.id}
+              style={{
+                fontSize: `${captionStyle.fontSize}px`,
+                fontFamily: `'${captionStyle.fontFamily}', 'M PLUS 2', sans-serif`,
+                fontWeight: 800,
+                color: captionStyle.textColor,
+                textShadow,
+                lineHeight: 1.35,
+                letterSpacing: "0.01em",
+                textAlign: "center",
+                opacity: line.visible ? ageOpacity : 0,
+                transition: "opacity 0.7s ease",
+                ...strokeStyle,
+              }}
             >
-              ▌
-            </span>
-          )}
-        </p>
+              {line.displayed}
+              {line.isTyping && (
+                <span
+                  className="inline-block animate-pulse"
+                  style={{ opacity: 0.7, marginLeft: 2 }}
+                >
+                  ▌
+                </span>
+              )}
+            </p>
+          );
+        })}
       </div>
     </div>
   );

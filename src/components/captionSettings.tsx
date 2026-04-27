@@ -14,7 +14,8 @@ export type CaptionStyle = {
   bgOpacity: number;
   position: "bottom" | "top" | "middle";
   typewriterSpeed: number;
-  lingerDuration: number; // ms to stay on screen after typing, 0 = forever
+  lingerDuration: number;
+  maxLines: number; // rolling caption window
 };
 
 type Props = {
@@ -45,6 +46,8 @@ const LINGER_PRESETS: { label: string; value: number }[] = [
   { label: "∞", value: 0 },
 ];
 
+const MAX_LINES_OPTIONS = [1, 2, 3, 4, 5];
+
 export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
   const update = useCallback(
     (partial: Partial<CaptionStyle>) => onChangeStyle({ ...style, ...partial }),
@@ -61,28 +64,72 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
 
         {/* Preview */}
         <div
-          className="relative flex items-center justify-center h-24 rounded-8 overflow-hidden"
-          style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)" }}
+          className="relative flex flex-col items-center justify-center gap-1 rounded-8 overflow-hidden py-12 px-16"
+          style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", minHeight: 80 }}
         >
-          <p
-            style={{
-              fontSize: `${Math.min(style.fontSize, 22)}px`,
-              fontFamily: `'${style.fontFamily}', sans-serif`,
-              fontWeight: 800,
-              color: style.textColor,
-              WebkitTextStroke: `${style.strokeWidth}px ${style.strokeColor}`,
-              paintOrder: "stroke fill",
-              textShadow: `0 0 ${style.shadowBlur}px ${style.shadowColor}`,
-              background:
-                style.bgOpacity > 0
-                  ? `rgba(0,0,0,${style.bgOpacity})`
-                  : "transparent",
-              padding: style.bgOpacity > 0 ? "4px 10px" : undefined,
-              borderRadius: style.bgOpacity > 0 ? "6px" : undefined,
-            }}
-          >
-            Preview caption text here!
-          </p>
+          {/* Show up to maxLines preview rows, fading older ones */}
+          {Array.from({ length: Math.min(style.maxLines, 3) }).map((_, i, arr) => {
+            const isNewest = i === arr.length - 1;
+            const age = arr.length - 1 - i;
+            const opacity = isNewest ? 1 : Math.max(0.35, 1 - age * 0.25);
+            const texts = [
+              "Previous caption here",
+              "Another line before",
+              "Preview caption text here!",
+            ];
+            const text = texts[texts.length - arr.length + i] ?? "Preview caption text here!";
+            return (
+              <p
+                key={i}
+                style={{
+                  fontSize: `${Math.min(style.fontSize, 20)}px`,
+                  fontFamily: `'${style.fontFamily}', sans-serif`,
+                  fontWeight: 800,
+                  color: style.textColor,
+                  WebkitTextStroke: `${style.strokeWidth}px ${style.strokeColor}`,
+                  paintOrder: "stroke fill",
+                  textShadow: `0 0 ${style.shadowBlur}px ${style.shadowColor}`,
+                  background:
+                    style.bgOpacity > 0
+                      ? `rgba(0,0,0,${style.bgOpacity})`
+                      : "transparent",
+                  padding: style.bgOpacity > 0 ? "2px 8px" : undefined,
+                  borderRadius: style.bgOpacity > 0 ? "4px" : undefined,
+                  opacity,
+                  margin: 0,
+                  lineHeight: 1.3,
+                }}
+              >
+                {text}
+              </p>
+            );
+          })}
+        </div>
+
+        {/* Rolling Lines */}
+        <div>
+          <div className="font-bold mb-6 text-sm flex justify-between">
+            <span>Rolling Caption Lines</span>
+            <span className="font-normal text-text-primary/60">{style.maxLines} line{style.maxLines !== 1 ? "s" : ""}</span>
+          </div>
+          <div className="flex gap-6">
+            {MAX_LINES_OPTIONS.map((n) => (
+              <button
+                key={n}
+                onClick={() => update({ maxLines: n })}
+                className={`flex-1 py-8 rounded-8 text-sm font-bold border-2 transition-all ${
+                  style.maxLines === n
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-surface3 bg-surface3 hover:border-primary/40"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className="text-xs text-text-primary/50 mt-6">
+            Number of caption lines visible at once. Oldest line disappears when a new one appears.
+          </div>
         </div>
 
         {/* Position */}
@@ -233,7 +280,6 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
             </span>
           </div>
 
-          {/* Quick preset buttons */}
           <div className="flex gap-6 mb-8">
             {LINGER_PRESETS.map((p) => (
               <button
@@ -250,7 +296,6 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
             ))}
           </div>
 
-          {/* Fine-grained slider (1s–30s) */}
           <input
             type="range" min={1} max={30} step={0.5}
             value={style.lingerDuration === 0 ? 30 : lingerSeconds}
@@ -258,7 +303,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
             onChange={(e) => update({ lingerDuration: Number(e.target.value) * 1000 })}
           />
           <div className="text-xs text-text-primary/50 mt-4">
-            How long the caption stays visible after typing finishes. Use ∞ to keep it on screen until the next message arrives.
+            How long each caption line stays visible after typing finishes. Use ∞ to keep lines until the next message arrives.
           </div>
         </div>
 
