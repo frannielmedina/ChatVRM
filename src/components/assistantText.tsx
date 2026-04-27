@@ -36,6 +36,15 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   maxLines: 3,
 };
 
+type RollingLine = {
+  id: number;
+  text: string;
+  displayed: string; // typewriter progress
+  done: boolean;     // typing finished
+};
+
+let _lineIdCounter = 0;
+
 type Props = {
   message: string;
   captionStyle?: CaptionStyle;
@@ -45,118 +54,93 @@ export const AssistantText = ({
   message,
   captionStyle = DEFAULT_CAPTION_STYLE,
 }: Props) => {
-  const [displayed, setDisplayed] = useState("");
-  // "hidden" = not rendered, "in" = opacity 1, "out" = opacity 0 (transitioning)
-  const [phase, setPhase] = useState<"hidden" | "in" | "out">("hidden");
+  // Rolling lines on screen, oldest first
+  const [lines, setLines] = useState<RollingLine[]>([]);
+  const [visible, setVisible] = useState(false);
 
-  // Keep captionStyle always fresh inside callbacks
   const styleRef = useRef(captionStyle);
   useEffect(() => { styleRef.current = captionStyle; }, [captionStyle]);
 
-  const timerType = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const timerLinger = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const timerFade = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Shared mutable state that closures read from refs, not stale captures
-  const phaseRef = useRef<"hidden" | "in" | "out">("hidden");
-  const activeTextRef = useRef<string>("");
-  const abortRef = useRef<boolean>(false);
+  const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lingerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeIdRef = useRef<number>(-1);
+  const abortRef = useRef(false);
 
   const cleanMessage = message.replace(/\[([a-zA-Z]*?)\]/g, "").trim();
 
   const clearTimers = () => {
-    if (timerType.current) { clearTimeout(timerType.current); timerType.current = null; }
-    if (timerLinger.current) { clearTimeout(timerLinger.current); timerLinger.current = null; }
-    if (timerFade.current) { clearTimeout(timerFade.current); timerFade.current = null; }
+    if (typeTimerRef.current) { clearTimeout(typeTimerRef.current); typeTimerRef.current = null; }
+    if (lingerTimerRef.current) { clearTimeout(lingerTimerRef.current); lingerTimerRef.current = null; }
   };
 
-  const goHidden = () => {
-    phaseRef.current = "hidden";
-    setPhase("hidden");
-    setDisplayed("");
-    activeTextRef.current = "";
-  };
-
-  const goOut = (then: () => void) => {
-    phaseRef.current = "out";
-    setPhase("out");
-    timerFade.current = setTimeout(then, 320);
-  };
-
-  const goIn = () => {
-    phaseRef.current = "in";
-    setPhase("in");
-  };
-
-  const startTyping = (text: string) => {
-    abortRef.current = false;
-    activeTextRef.current = text;
-    setDisplayed("");
-    goIn();
-
-    const speed = styleRef.current.typewriterSpeed;
-
-    if (speed === 0) {
-      setDisplayed(text);
-      startLinger(text);
-      return;
-    }
-
-    let i = 0;
-    const tick = () => {
-      if (abortRef.current) return;
-      i++;
-      setDisplayed(text.slice(0, i));
-      if (i < text.length) {
-        timerType.current = setTimeout(tick, speed);
-      } else {
-        startLinger(text);
-      }
-    };
-    timerType.current = setTimeout(tick, speed);
-  };
-
-  const startLinger = (text: string) => {
+  const startLinger = (id: number) => {
     const dur = styleRef.current.lingerDuration;
-    if (dur <= 0) return; // stay forever until next message
-    timerLinger.current = setTimeout(() => {
-      if (activeTextRef.current !== text) return;
-      goOut(() => {
-        if (activeTextRef.current !== text) return;
-        goHidden();
-      });
+    if (dur <= 0) return; // stay until next message
+    lingerTimerRef.current = setTimeout(() => {
+      if (activeIdRef.current !== id) return;
+      setVisible(false);
+      setTimeout(() => {
+        if (activeIdRef.current !== id) return;
+        setLines([]);
+      }, 350);
     }, dur);
   };
 
   useEffect(() => {
-    // Stop everything in progress
     abortRef.current = true;
     clearTimers();
 
     if (!cleanMessage) {
-      if (phaseRef.current !== "hidden") {
-        goOut(() => goHidden());
-      }
+      setVisible(false);
+      setTimeout(() => setLines([]), 350);
       return () => { abortRef.current = true; clearTimers(); };
     }
 
-    if (phaseRef.current === "hidden") {
-      // Nothing showing — start right away
-      startTyping(cleanMessage);
-    } else {
-      // Something is on screen — fade it out then start new
-      goOut(() => {
-        goHidden();
-        startTyping(cleanMessage);
-      });
+    const id = ++_lineIdCounter;
+    activeIdRef.current = id;
+    abortRef.current = false;
+
+    const maxLines = styleRef.current.maxLines;
+
+    // Add the new line, evicting the oldest if we're at capacity
+    setLines((prev) => {
+      const trimmed = prev.slice(-(maxLines - 1));
+      return [...trimmed, { id, text: cleanMessage, displayed: "", done: false }];
+    });
+    setVisible(true);
+
+    const speed = styleRef.current.typewriterSpeed;
+
+    if (speed === 0) {
+      setLines((prev) =>
+        prev.map((l) => l.id === id ? { ...l, displayed: cleanMessage, done: true } : l)
+      );
+      startLinger(id);
+      return () => { abortRef.current = true; clearTimers(); };
     }
 
+    let i = 0;
+    const tick = () => {
+      if (abortRef.current || activeIdRef.current !== id) return;
+      i++;
+      const slice = cleanMessage.slice(0, i);
+      const done = i >= cleanMessage.length;
+      setLines((prev) =>
+        prev.map((l) => l.id === id ? { ...l, displayed: slice, done } : l)
+      );
+      if (!done) {
+        typeTimerRef.current = setTimeout(tick, speed);
+      } else {
+        startLinger(id);
+      }
+    };
+    typeTimerRef.current = setTimeout(tick, speed);
+
     return () => { abortRef.current = true; clearTimers(); };
-    // cleanMessage is the only real trigger; style changes handled via styleRef
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cleanMessage]);
 
-  if (phase === "hidden") return null;
+  if (lines.length === 0) return null;
 
   const positionClass =
     captionStyle.position === "top"
@@ -170,13 +154,13 @@ export const AssistantText = ({
     `0 2px 4px rgba(0,0,0,0.8)`,
   ].join(", ");
 
-  const maxHeightPx = captionStyle.fontSize * 1.4 * captionStyle.maxLines;
+  const lineCount = lines.length;
 
   return (
     <div
       className={`absolute left-0 right-0 z-30 flex justify-center pointer-events-none px-24 ${positionClass}`}
       style={{
-        opacity: phase === "in" ? 1 : 0,
+        opacity: visible ? 1 : 0,
         transition: "opacity 0.3s ease",
       }}
     >
@@ -184,6 +168,10 @@ export const AssistantText = ({
         style={{
           maxWidth: "700px",
           width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "2px",
           background:
             captionStyle.bgOpacity > 0
               ? `rgba(0,0,0,${captionStyle.bgOpacity})`
@@ -192,27 +180,36 @@ export const AssistantText = ({
           padding: captionStyle.bgOpacity > 0 ? "8px 20px" : undefined,
         }}
       >
-        <p
-          style={{
-            fontSize: `${captionStyle.fontSize}px`,
-            fontFamily: `'${captionStyle.fontFamily}', 'M PLUS 2', sans-serif`,
-            fontWeight: 800,
-            color: captionStyle.textColor,
-            textShadow,
-            WebkitTextStroke: `${captionStyle.strokeWidth}px ${captionStyle.strokeColor}`,
-            paintOrder: "stroke fill",
-            lineHeight: 1.4,
-            letterSpacing: "0.01em",
-            textAlign: "center",
-            maxHeight: `${maxHeightPx}px`,
-            overflow: "hidden",
-            wordBreak: "break-word",
-            whiteSpace: "normal",
-            margin: 0,
-          } as React.CSSProperties}
-        >
-          {displayed}
-        </p>
+        {lines.map((line, idx) => {
+          // Oldest lines are more faded; newest (idx === lineCount-1) is fully opaque
+          const age = lineCount - 1 - idx; // 0 = newest
+          const opacity = age === 0 ? 1 : Math.max(0.3, 1 - age * 0.28);
+
+          return (
+            <p
+              key={line.id}
+              style={{
+                fontSize: `${captionStyle.fontSize}px`,
+                fontFamily: `'${captionStyle.fontFamily}', 'M PLUS 2', sans-serif`,
+                fontWeight: 800,
+                color: captionStyle.textColor,
+                textShadow,
+                WebkitTextStroke: `${captionStyle.strokeWidth}px ${captionStyle.strokeColor}`,
+                paintOrder: "stroke fill",
+                lineHeight: 1.4,
+                letterSpacing: "0.01em",
+                textAlign: "center",
+                wordBreak: "break-word",
+                whiteSpace: "normal",
+                margin: 0,
+                opacity,
+                transition: "opacity 0.3s ease",
+              } as React.CSSProperties}
+            >
+              {line.displayed}
+            </p>
+          );
+        })}
       </div>
     </div>
   );
