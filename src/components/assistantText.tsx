@@ -1,30 +1,8 @@
 import { useEffect, useState, useRef } from "react";
+import { CaptionStyle, DEFAULT_CAPTION_STYLE } from "./captionSettings";
 
-type CaptionStyle = {
-  fontSize: number;
-  fontFamily: string;
-  textColor: string;
-  strokeColor: string;
-  strokeWidth: number;
-  shadowBlur: number;
-  shadowColor: string;
-  bgOpacity: number; // 0 = transparent, 1 = full
-  position: "bottom" | "top" | "middle";
-  typewriterSpeed: number; // ms per char, 0 = instant
-};
-
-export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
-  fontSize: 28,
-  fontFamily: "Montserrat",
-  textColor: "#ffffff",
-  strokeColor: "#000000",
-  strokeWidth: 6,
-  shadowBlur: 8,
-  shadowColor: "rgba(0,0,0,0.9)",
-  bgOpacity: 0,
-  position: "bottom",
-  typewriterSpeed: 18,
-};
+export { DEFAULT_CAPTION_STYLE } from "./captionSettings";
+export type { CaptionStyle } from "./captionSettings";
 
 type Props = {
   message: string;
