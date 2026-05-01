@@ -1,7 +1,5 @@
 import React, { useCallback } from "react";
-import { DEFAULT_CAPTION_STYLE as _DEFAULT_CAPTION_STYLE } from "./assistantText";
-
-export { DEFAULT_CAPTION_STYLE } from "./assistantText";
+import { DEFAULT_CAPTION_STYLE } from "./assistantText";
 
 export type CaptionStyle = {
   fontSize: number;
@@ -14,8 +12,6 @@ export type CaptionStyle = {
   bgOpacity: number;
   position: "bottom" | "top" | "middle";
   typewriterSpeed: number;
-  lingerDuration: number;
-  maxLines: number; // rolling caption window
 };
 
 type Props = {
@@ -39,22 +35,11 @@ const POSITION_OPTIONS: { value: CaptionStyle["position"]; label: string }[] = [
   { value: "top", label: "⬆ Top" },
 ];
 
-const LINGER_PRESETS: { label: string; value: number }[] = [
-  { label: "2s", value: 2000 },
-  { label: "5s", value: 5000 },
-  { label: "10s", value: 10000 },
-  { label: "∞", value: 0 },
-];
-
-const MAX_LINES_OPTIONS = [1, 2, 3, 4, 5];
-
 export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
   const update = useCallback(
     (partial: Partial<CaptionStyle>) => onChangeStyle({ ...style, ...partial }),
     [style, onChangeStyle]
   );
-
-  const lingerSeconds = style.lingerDuration / 1000;
 
   return (
     <div className="my-40">
@@ -64,72 +49,28 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
 
         {/* Preview */}
         <div
-          className="relative flex flex-col items-center justify-center gap-1 rounded-8 overflow-hidden py-12 px-16"
-          style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", minHeight: 80 }}
+          className="relative flex items-center justify-center h-24 rounded-8 overflow-hidden"
+          style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)" }}
         >
-          {/* Show up to maxLines preview rows, fading older ones */}
-          {Array.from({ length: Math.min(style.maxLines, 3) }).map((_, i, arr) => {
-            const isNewest = i === arr.length - 1;
-            const age = arr.length - 1 - i;
-            const opacity = isNewest ? 1 : Math.max(0.35, 1 - age * 0.25);
-            const texts = [
-              "Previous caption here",
-              "Another line before",
-              "Preview caption text here!",
-            ];
-            const text = texts[texts.length - arr.length + i] ?? "Preview caption text here!";
-            return (
-              <p
-                key={i}
-                style={{
-                  fontSize: `${Math.min(style.fontSize, 20)}px`,
-                  fontFamily: `'${style.fontFamily}', sans-serif`,
-                  fontWeight: 800,
-                  color: style.textColor,
-                  WebkitTextStroke: `${style.strokeWidth}px ${style.strokeColor}`,
-                  paintOrder: "stroke fill",
-                  textShadow: `0 0 ${style.shadowBlur}px ${style.shadowColor}`,
-                  background:
-                    style.bgOpacity > 0
-                      ? `rgba(0,0,0,${style.bgOpacity})`
-                      : "transparent",
-                  padding: style.bgOpacity > 0 ? "2px 8px" : undefined,
-                  borderRadius: style.bgOpacity > 0 ? "4px" : undefined,
-                  opacity,
-                  margin: 0,
-                  lineHeight: 1.3,
-                }}
-              >
-                {text}
-              </p>
-            );
-          })}
-        </div>
-
-        {/* Rolling Lines */}
-        <div>
-          <div className="font-bold mb-6 text-sm flex justify-between">
-            <span>Rolling Caption Lines</span>
-            <span className="font-normal text-text-primary/60">{style.maxLines} line{style.maxLines !== 1 ? "s" : ""}</span>
-          </div>
-          <div className="flex gap-6">
-            {MAX_LINES_OPTIONS.map((n) => (
-              <button
-                key={n}
-                onClick={() => update({ maxLines: n })}
-                className={`flex-1 py-8 rounded-8 text-sm font-bold border-2 transition-all ${
-                  style.maxLines === n
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-surface3 bg-surface3 hover:border-primary/40"
-                }`}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-          <div className="text-xs text-text-primary/50 mt-6">
-            Number of caption lines visible at once. Oldest line disappears when a new one appears.
-          </div>
+          <p
+            style={{
+              fontSize: `${Math.min(style.fontSize, 22)}px`,
+              fontFamily: `'${style.fontFamily}', sans-serif`,
+              fontWeight: 800,
+              color: style.textColor,
+              WebkitTextStroke: `${style.strokeWidth}px ${style.strokeColor}`,
+              paintOrder: "stroke fill",
+              textShadow: `0 0 ${style.shadowBlur}px ${style.shadowColor}`,
+              background:
+                style.bgOpacity > 0
+                  ? `rgba(0,0,0,${style.bgOpacity})`
+                  : "transparent",
+              padding: style.bgOpacity > 0 ? "4px 10px" : undefined,
+              borderRadius: style.bgOpacity > 0 ? "6px" : undefined,
+            }}
+          >
+            Preview caption text here!
+          </p>
         </div>
 
         {/* Position */}
@@ -271,45 +212,9 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           <div className="text-xs text-text-primary/50 mt-4">0 = instant, higher = slower typewriter</div>
         </div>
 
-        {/* Linger duration */}
-        <div>
-          <div className="font-bold mb-4 text-sm flex justify-between">
-            <span>Caption Linger Duration</span>
-            <span className="font-normal text-text-primary/60">
-              {style.lingerDuration === 0 ? "Always visible" : `${lingerSeconds.toFixed(1)}s`}
-            </span>
-          </div>
-
-          <div className="flex gap-6 mb-8">
-            {LINGER_PRESETS.map((p) => (
-              <button
-                key={p.value}
-                onClick={() => update({ lingerDuration: p.value })}
-                className={`px-12 py-4 rounded-8 text-xs font-bold border-2 transition-all ${
-                  style.lingerDuration === p.value
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-surface3 bg-surface3 hover:border-primary/40"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-
-          <input
-            type="range" min={1} max={30} step={0.5}
-            value={style.lingerDuration === 0 ? 30 : lingerSeconds}
-            className="input-range w-full"
-            onChange={(e) => update({ lingerDuration: Number(e.target.value) * 1000 })}
-          />
-          <div className="text-xs text-text-primary/50 mt-4">
-            How long each caption line stays visible after typing finishes. Use ∞ to keep lines until the next message arrives.
-          </div>
-        </div>
-
         {/* Reset button */}
         <button
-          onClick={() => onChangeStyle({ ..._DEFAULT_CAPTION_STYLE })}
+          onClick={() => onChangeStyle({ ...DEFAULT_CAPTION_STYLE })}
           className="px-16 py-6 rounded-8 border-2 border-surface3 bg-surface3 hover:border-primary/40 text-sm font-bold self-start"
         >
           Reset to Defaults

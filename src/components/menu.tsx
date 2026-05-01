@@ -193,11 +193,7 @@ export const Menu = ({
 
       {/* Caption — shown when not in dialog and there is a message */}
       {!showChatLog && assistantMessage && (
-        <AssistantText
-  key={assistantMessage}
-  message={assistantMessage}
-  captionStyle={captionStyle}
-/>
+        <AssistantText message={assistantMessage} captionStyle={captionStyle} />
       )}
 
       <input
