@@ -204,29 +204,28 @@ export default function Home() {
           const { done, value } = await reader.read();
 
           if (done) {
-            // Handle any remaining text that didn't end with punctuation
             const remaining = receivedMessage.trim();
             if (remaining) {
               const aiText = `${tag} ${remaining}`;
               const aiTalks = textsToScreenplay([aiText], koeiroParam);
               aiTextLog += aiText;
               sentences.push(remaining);
-              // Speak without updating caption — caption set once below
-              handleSpeakAi(aiTalks[0]);
+              const currentAssistantMessage = sentences.join(" ");
+              handleSpeakAi(aiTalks[0], () => {
+                setAssistantMessage(currentAssistantMessage);
+              });
             }
             break;
           }
 
           receivedMessage += value;
 
-          // Extract emotion tag if present at the start
           const tagMatch = receivedMessage.match(/^\[(.*?)\]/);
           if (tagMatch && tagMatch[0]) {
             tag = tagMatch[0];
             receivedMessage = receivedMessage.slice(tag.length);
           }
 
-          // Extract complete sentences ending with punctuation
           const sentenceMatch = receivedMessage.match(/^(.+[。．！？\n])/);
           if (sentenceMatch && sentenceMatch[0]) {
             const sentence = sentenceMatch[0];
@@ -246,22 +245,16 @@ export default function Home() {
             const aiTalks = textsToScreenplay([aiText], koeiroParam);
             aiTextLog += aiText;
 
-            // Speak each sentence but don't update caption per-sentence
-            handleSpeakAi(aiTalks[0]);
+            const currentAssistantMessage = sentences.join(" ");
+            handleSpeakAi(aiTalks[0], () => {
+              setAssistantMessage(currentAssistantMessage);
+            });
           }
         }
       } catch (e) {
         console.error(e);
       } finally {
         reader.releaseLock();
-      }
-
-      // ── Set caption ONCE with the full assembled response ────────────────
-      // This prevents multiple rolling lines from stacking up per sentence.
-      // The full text wraps naturally within the maxLines rolling window.
-      if (aiTextLog) {
-        const cleanFull = aiTextLog.replace(/\[([a-zA-Z]*?)\]/g, "").trim();
-        setAssistantMessage(cleanFull);
       }
 
       setChatLog([...messageLog, { role: "assistant", content: aiTextLog }]);
