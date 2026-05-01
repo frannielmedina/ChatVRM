@@ -114,7 +114,7 @@ export const Introduction = ({ aiConfig, onChangeAiConfig }: Props) => {
 
         <div className="my-24">
           <button
-            onClick={() => setOpened(false)}
+            onClick={() => setOpened(true)}
             className="font-bold bg-secondary hover:bg-secondary-hover active:bg-secondary-press disabled:bg-secondary-disabled text-white px-24 py-8 rounded-oval"
           >
             {isReady ? "Start" : "Continue without API Key"}
