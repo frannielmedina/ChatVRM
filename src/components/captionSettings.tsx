@@ -1,8 +1,7 @@
 import React, { useCallback } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Types & defaults — exported so index.tsx, menu.tsx, assistantText.tsx can
-// all import from this single source of truth.
+// Types & defaults
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type CaptionStyle = {
@@ -15,7 +14,12 @@ export type CaptionStyle = {
   shadowColor: string;
   bgOpacity: number;
   position: "bottom" | "top" | "middle";
+  // Typewriter
+  typewriterEnabled: boolean;
   typewriterSpeed: number;
+  // Linger / disappear
+  lingerDuration: number;   // seconds (0 = stay forever until next message)
+  fadeOut: boolean;         // true = fade, false = instant disappear
 };
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
@@ -28,7 +32,10 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   shadowColor: "rgba(0,0,0,0.9)",
   bgOpacity: 0,
   position: "bottom",
+  typewriterEnabled: true,
   typewriterSpeed: 18,
+  lingerDuration: 5,
+  fadeOut: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,6 +63,35 @@ const POSITION_OPTIONS: { value: CaptionStyle["position"]; label: string }[] = [
   { value: "top", label: "⬆ Top" },
 ];
 
+/** Small toggle button pair */
+const TogglePair = ({
+  value,
+  onChange,
+  labelOn,
+  labelOff,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+  labelOn: string;
+  labelOff: string;
+}) => (
+  <div className="grid grid-cols-2 gap-6">
+    {[true, false].map((v) => (
+      <button
+        key={String(v)}
+        onClick={() => onChange(v)}
+        className={`py-6 rounded-8 text-sm border-2 transition-all font-bold ${
+          value === v
+            ? "border-primary bg-primary/10"
+            : "border-surface3 bg-surface3 hover:border-primary/40"
+        }`}
+      >
+        {v ? labelOn : labelOff}
+      </button>
+    ))}
+  </div>
+);
+
 export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
   const update = useCallback(
     (partial: Partial<CaptionStyle>) => onChangeStyle({ ...style, ...partial }),
@@ -68,7 +104,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
 
       <div className="p-16 bg-surface1 rounded-8 flex flex-col gap-16">
 
-        {/* Live preview */}
+        {/* ── Live preview ──────────────────────────────────────────────── */}
         <div
           className="relative flex items-center justify-center rounded-8 overflow-hidden"
           style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", height: 96 }}
@@ -80,7 +116,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
               fontWeight: 800,
               color: style.textColor,
               WebkitTextStroke: `${style.strokeWidth}px ${style.strokeColor}`,
-              paintOrder: "stroke fill" as any,
+              paintOrder: "stroke fill" as React.CSSProperties["paintOrder"],
               textShadow: `0 0 ${style.shadowBlur}px ${style.shadowColor}`,
               background:
                 style.bgOpacity > 0
@@ -94,7 +130,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           </p>
         </div>
 
-        {/* Position */}
+        {/* ── Position ──────────────────────────────────────────────────── */}
         <div>
           <div className="font-bold mb-6 text-sm">Position</div>
           <div className="grid grid-cols-3 gap-6">
@@ -114,7 +150,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           </div>
         </div>
 
-        {/* Font family */}
+        {/* ── Font family ───────────────────────────────────────────────── */}
         <div>
           <div className="font-bold mb-4 text-sm">Font Family</div>
           <select
@@ -130,7 +166,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           </select>
         </div>
 
-        {/* Font size */}
+        {/* ── Font size ─────────────────────────────────────────────────── */}
         <div>
           <div className="font-bold mb-4 text-sm flex justify-between">
             <span>Font Size</span>
@@ -144,7 +180,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           />
         </div>
 
-        {/* Colors */}
+        {/* ── Colors ────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-12">
           <div>
             <div className="font-bold mb-4 text-sm">Text Color</div>
@@ -172,7 +208,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           </div>
         </div>
 
-        {/* Stroke width */}
+        {/* ── Stroke width ──────────────────────────────────────────────── */}
         <div>
           <div className="font-bold mb-4 text-sm flex justify-between">
             <span>Stroke / Outline Width</span>
@@ -186,7 +222,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           />
         </div>
 
-        {/* Shadow blur */}
+        {/* ── Shadow blur ───────────────────────────────────────────────── */}
         <div>
           <div className="font-bold mb-4 text-sm flex justify-between">
             <span>Shadow Blur</span>
@@ -200,7 +236,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           />
         </div>
 
-        {/* Background opacity */}
+        {/* ── Background opacity ────────────────────────────────────────── */}
         <div>
           <div className="font-bold mb-4 text-sm flex justify-between">
             <span>Background Opacity</span>
@@ -216,26 +252,78 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           />
         </div>
 
-        {/* Typewriter speed */}
+        {/* ── Divider ───────────────────────────────────────────────────── */}
+        <div className="border-t border-surface3" />
+
+        {/* ── Typewriter ────────────────────────────────────────────────── */}
+        <div>
+          <div className="font-bold mb-6 text-sm">Typewriter Effect</div>
+          <TogglePair
+            value={style.typewriterEnabled}
+            onChange={(v) => update({ typewriterEnabled: v })}
+            labelOn="✍ Enabled"
+            labelOff="⚡ Disabled (instant)"
+          />
+        </div>
+
+        {style.typewriterEnabled && (
+          <div>
+            <div className="font-bold mb-4 text-sm flex justify-between">
+              <span>Typing Speed</span>
+              <span className="font-normal text-text-primary/60">
+                {style.typewriterSpeed}ms / character
+              </span>
+            </div>
+            <input
+              type="range" min={2} max={80} step={2}
+              value={style.typewriterSpeed}
+              className="input-range w-full"
+              onChange={(e) => update({ typewriterSpeed: Number(e.target.value) })}
+            />
+            <div className="text-xs text-text-primary/50 mt-4">
+              Lower = faster typing · Higher = slower typing
+            </div>
+          </div>
+        )}
+
+        {/* ── Divider ───────────────────────────────────────────────────── */}
+        <div className="border-t border-surface3" />
+
+        {/* ── Linger duration ───────────────────────────────────────────── */}
         <div>
           <div className="font-bold mb-4 text-sm flex justify-between">
-            <span>Typewriter Speed</span>
+            <span>Caption Display Duration</span>
             <span className="font-normal text-text-primary/60">
-              {style.typewriterSpeed === 0 ? "Instant" : `${style.typewriterSpeed}ms/char`}
+              {style.lingerDuration === 0
+                ? "Stay until next message"
+                : `${style.lingerDuration}s`}
             </span>
           </div>
           <input
-            type="range" min={0} max={80} step={2}
-            value={style.typewriterSpeed}
+            type="range" min={0} max={30} step={0.5}
+            value={style.lingerDuration}
             className="input-range w-full"
-            onChange={(e) => update({ typewriterSpeed: Number(e.target.value) })}
+            onChange={(e) => update({ lingerDuration: Number(e.target.value) })}
           />
           <div className="text-xs text-text-primary/50 mt-4">
-            0 = instant · higher = slower typewriter effect
+            0 = stay on screen until the next message arrives
           </div>
         </div>
 
-        {/* Reset */}
+        {/* ── Fade out ──────────────────────────────────────────────────── */}
+        {style.lingerDuration > 0 && (
+          <div>
+            <div className="font-bold mb-6 text-sm">Disappear Style</div>
+            <TogglePair
+              value={style.fadeOut}
+              onChange={(v) => update({ fadeOut: v })}
+              labelOn="🌫 Fade Out"
+              labelOff="✂ Instant Cut"
+            />
+          </div>
+        )}
+
+        {/* ── Reset ─────────────────────────────────────────────────────── */}
         <button
           onClick={() => onChangeStyle({ ...DEFAULT_CAPTION_STYLE })}
           className="px-16 py-6 rounded-8 border-2 border-surface3 bg-surface3 hover:border-primary/40 text-sm font-bold self-start"
