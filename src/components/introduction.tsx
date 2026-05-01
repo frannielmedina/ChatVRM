@@ -8,11 +8,7 @@ type Props = {
 };
 
 export const Introduction = ({ aiConfig, onChangeAiConfig }: Props) => {
-  const [opened, setOpened] = useState(
-    !aiConfig.apiKey &&
-    aiConfig.provider !== "ollama" &&
-    aiConfig.provider !== "lmstudio"
-  );
+  const [opened, setOpened] = useState(false);
 
   const meta = getProviderMeta(aiConfig.provider);
 
