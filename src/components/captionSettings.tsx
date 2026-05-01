@@ -1,5 +1,9 @@
 import React, { useCallback } from "react";
-import { DEFAULT_CAPTION_STYLE } from "./assistantText";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types & defaults — exported so index.tsx, menu.tsx, assistantText.tsx can
+// all import from this single source of truth.
+// ─────────────────────────────────────────────────────────────────────────────
 
 export type CaptionStyle = {
   fontSize: number;
@@ -13,6 +17,23 @@ export type CaptionStyle = {
   position: "bottom" | "top" | "middle";
   typewriterSpeed: number;
 };
+
+export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
+  fontSize: 28,
+  fontFamily: "Montserrat",
+  textColor: "#ffffff",
+  strokeColor: "#000000",
+  strokeWidth: 6,
+  shadowBlur: 8,
+  shadowColor: "rgba(0,0,0,0.9)",
+  bgOpacity: 0,
+  position: "bottom",
+  typewriterSpeed: 18,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 type Props = {
   style: CaptionStyle;
@@ -47,10 +68,10 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
 
       <div className="p-16 bg-surface1 rounded-8 flex flex-col gap-16">
 
-        {/* Preview */}
+        {/* Live preview */}
         <div
-          className="relative flex items-center justify-center h-24 rounded-8 overflow-hidden"
-          style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)" }}
+          className="relative flex items-center justify-center rounded-8 overflow-hidden"
+          style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", height: 96 }}
         >
           <p
             style={{
@@ -59,7 +80,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
               fontWeight: 800,
               color: style.textColor,
               WebkitTextStroke: `${style.strokeWidth}px ${style.strokeColor}`,
-              paintOrder: "stroke fill",
+              paintOrder: "stroke fill" as any,
               textShadow: `0 0 ${style.shadowBlur}px ${style.shadowColor}`,
               background:
                 style.bgOpacity > 0
@@ -93,7 +114,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           </div>
         </div>
 
-        {/* Font */}
+        {/* Font family */}
         <div>
           <div className="font-bold mb-4 text-sm">Font Family</div>
           <select
@@ -123,7 +144,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
           />
         </div>
 
-        {/* Colors row */}
+        {/* Colors */}
         <div className="grid grid-cols-2 gap-12">
           <div>
             <div className="font-bold mb-4 text-sm">Text Color</div>
@@ -138,7 +159,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
             </div>
           </div>
           <div>
-            <div className="font-bold mb-4 text-sm">Stroke / Outline Color</div>
+            <div className="font-bold mb-4 text-sm">Stroke Color</div>
             <div className="flex items-center gap-8">
               <input
                 type="color"
@@ -154,7 +175,7 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
         {/* Stroke width */}
         <div>
           <div className="font-bold mb-4 text-sm flex justify-between">
-            <span>Outline / Stroke Width</span>
+            <span>Stroke / Outline Width</span>
             <span className="font-normal text-text-primary/60">{style.strokeWidth}px</span>
           </div>
           <input
@@ -209,10 +230,12 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
             className="input-range w-full"
             onChange={(e) => update({ typewriterSpeed: Number(e.target.value) })}
           />
-          <div className="text-xs text-text-primary/50 mt-4">0 = instant, higher = slower typewriter</div>
+          <div className="text-xs text-text-primary/50 mt-4">
+            0 = instant · higher = slower typewriter effect
+          </div>
         </div>
 
-        {/* Reset button */}
+        {/* Reset */}
         <button
           onClick={() => onChangeStyle({ ...DEFAULT_CAPTION_STYLE })}
           className="px-16 py-6 rounded-8 border-2 border-surface3 bg-surface3 hover:border-primary/40 text-sm font-bold self-start"
