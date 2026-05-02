@@ -1,5 +1,6 @@
 import { VRMExpressionPresetName } from "@pixiv/three-vrm";
 import { KoeiroParam } from "../constants/koeiroParam";
+import { ALL_POSE_TAGS } from "../emoteController/poseController";
 
 export type Message = {
   role: "assistant" | "system" | "user";
@@ -22,6 +23,8 @@ type EmotionType = (typeof emotions)[number] & VRMExpressionPresetName;
 export type Screenplay = {
   expression: EmotionType;
   talk: Talk;
+  /** Pose tag to trigger (e.g. "bow", "wave", "shy") — undefined if none */
+  pose?: string;
 };
 
 export const splitSentence = (text: string): string[] => {
@@ -35,16 +38,24 @@ export const textsToScreenplay = (
 ): Screenplay[] => {
   const screenplays: Screenplay[] = [];
   let prevExpression = "neutral";
+
   for (let i = 0; i < texts.length; i++) {
     const text = texts[i];
-    const match = text.match(/\[(.*?)\]/);
-    const tag = (match && match[1]) || prevExpression;
-    const message = text.replace(/\[(.*?)\]/g, "");
+
+    // Extract ALL bracket tags from the text
+    const allTags = [...text.matchAll(/\[([a-zA-Z_]*?)\]/g)].map((m) => m[1]);
+
+    // Split emotion tags from pose tags
+    const emotionTag = allTags.find((t) => emotions.includes(t as any));
+    const poseTag = allTags.find((t) => ALL_POSE_TAGS.includes(t));
+
+    // Remove all bracket tags from the spoken text
+    const message = text.replace(/\[[a-zA-Z_]*?\]/g, "").trim();
 
     let expression = prevExpression;
-    if (emotions.includes(tag as any)) {
-      expression = tag;
-      prevExpression = tag;
+    if (emotionTag && emotions.includes(emotionTag as any)) {
+      expression = emotionTag;
+      prevExpression = emotionTag;
     }
 
     screenplays.push({
@@ -55,6 +66,7 @@ export const textsToScreenplay = (
         speakerY: koeiroParam.speakerY,
         message: message,
       },
+      pose: poseTag,
     });
   }
   return screenplays;
@@ -62,9 +74,9 @@ export const textsToScreenplay = (
 
 const emotionToTalkStyle = (emotion: EmotionType): TalkStyle => {
   switch (emotion) {
-    case "angry": return "angry";
-    case "happy": return "happy";
-    case "sad": return "sad";
-    default: return "talk";
+    case "angry":   return "angry";
+    case "happy":   return "happy";
+    case "sad":     return "sad";
+    default:        return "talk";
   }
 };
