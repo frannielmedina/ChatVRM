@@ -42,8 +42,8 @@ export const AssistantText = ({
     if (fadeTimerRef.current)   { clearTimeout(fadeTimerRef.current);   fadeTimerRef.current   = null; }
   };
 
-  // Strip emotion tags like [happy]
-  const clean = (msg: string) => msg.replace(/\[([a-zA-Z]*?)\]/g, "").trim();
+  // Strip emotion tags like [happy] AND pose tags like [bow], [wave], etc.
+  const clean = (msg: string) => msg.replace(/\[([a-zA-Z_]*?)\]/g, "").trim();
 
   // ── Schedule the linger → disappear sequence ────────────────────────────
   const scheduleLinger = (text: string) => {
@@ -162,8 +162,6 @@ export const AssistantText = ({
 
     showMessage(cleanMsg);
     return clearAllTimers;
-    // We intentionally omit captionStyle from deps to avoid restarting mid-type;
-    // the refs capture the latest values when timers fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message]);
 
@@ -191,7 +189,6 @@ export const AssistantText = ({
     paintOrder: "stroke fill",
   };
 
-  // Fade transition: 500 ms when fading, instant when appearing
   const fadeDuration = captionStyle.fadeOut ? 500 : 0;
   const opacity = phase === "visible" ? 1 : 0;
 

@@ -56,6 +56,9 @@ export const ChatLogDialog = ({ messages, onClose }: Props) => {
     URL.revokeObjectURL(url);
   };
 
+  // Strip all bracket tags (emotion + pose) for display
+  const stripTags = (text: string) => text.replace(/\[[a-zA-Z_]*?\]/g, "").trim();
+
   return (
     // Backdrop
     <div
@@ -148,7 +151,7 @@ export const ChatLogDialog = ({ messages, onClose }: Props) => {
                           : "bg-primary text-white rounded-tr-4"
                       }`}
                     >
-                      {msg.content.replace(/\[([a-zA-Z]*?)\]/g, "")}
+                      {stripTags(msg.content)}
                     </div>
                   </div>
                 );
