@@ -54,7 +54,11 @@ export class Model {
   public async speak(buffer: ArrayBuffer, screenplay: Screenplay) {
     this.emoteController?.playEmotion(screenplay.expression);
     await new Promise((resolve) => {
-      this._lipSync?.playFromArrayBuffer(buffer, () => { resolve(true); });
+      this._lipSync?.playFromArrayBuffer(buffer, () => {
+        // Reset to neutral expression once TTS audio finishes playing
+        this.emoteController?.playEmotion("neutral");
+        resolve(true);
+      });
     });
   }
 
