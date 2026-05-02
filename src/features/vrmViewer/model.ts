@@ -6,6 +6,7 @@ import { VRMLookAtSmootherLoaderPlugin } from "@/lib/VRMLookAtSmootherLoaderPlug
 import { LipSync } from "../lipSync/lipSync";
 import { EmoteController } from "../emoteController/emoteController";
 import { Screenplay } from "../messages/messages";
+import { playPose, cancelPose } from "../emoteController/poseController";
 
 export class Model {
   public vrm?: VRM | null;
@@ -38,6 +39,7 @@ export class Model {
 
   public unLoadVrm() {
     if (this.vrm) {
+      cancelPose(this.vrm);
       VRMUtils.deepDispose(this.vrm.scene);
       this.vrm = null;
     }
@@ -53,6 +55,12 @@ export class Model {
 
   public async speak(buffer: ArrayBuffer, screenplay: Screenplay) {
     this.emoteController?.playEmotion(screenplay.expression);
+
+    // Trigger pose gesture if present (fire-and-forget — it self-restores)
+    if (screenplay.pose && this.vrm) {
+      playPose(this.vrm, screenplay.pose);
+    }
+
     await new Promise((resolve) => {
       this._lipSync?.playFromArrayBuffer(buffer, () => {
         // Reset to neutral expression once TTS audio finishes playing
