@@ -32,7 +32,6 @@ function getBaseUrl(config: AIProviderConfig): string {
 function getAuthHeader(config: AIProviderConfig): Record<string, string> {
   switch (config.provider) {
     case "google":
-      return {};
     case "ollama":
     case "lmstudio":
       return {};
@@ -49,6 +48,26 @@ function getExtraHeaders(config: AIProviderConfig): Record<string, string> {
     };
   }
   return {};
+}
+
+// ── SSE line parser ───────────────────────────────────────────────────────────
+// Extracts the text content from a single "data: {...}" SSE line.
+// Returns null if the line should be skipped (DONE, empty, non-data, parse error).
+function extractContentFromSSELine(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed || !trimmed.startsWith("data:")) return null;
+
+  const data = trimmed.slice("data:".length).trim();
+  if (!data || data === "[DONE]") return null;
+
+  try {
+    const json = JSON.parse(data);
+    const piece = json?.choices?.[0]?.delta?.content;
+    // piece could be an empty string "" for keep-alive chunks — filter those out
+    return typeof piece === "string" && piece.length > 0 ? piece : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ── Google Gemini streaming ───────────────────────────────────────────────────
@@ -99,7 +118,7 @@ async function getChatResponseStreamGoogle(
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value);
+          const chunk = decoder.decode(value, { stream: true });
           const lines = chunk.split("\n").filter((l) => l.startsWith("data:"));
           for (const line of lines) {
             const data = line.slice("data:".length).trim();
@@ -150,10 +169,8 @@ async function getChatResponseStreamOpenAICompat(
     body.model = model;
   }
 
-  // Groq-specific: enforce JSON-safe streaming
-  if (config.provider === "groq") {
-    body.stream_options = { include_usage: false };
-  }
+  // NOTE: Do NOT add stream_options for Groq — it causes intermittent failures
+  // with smaller models like llama-3.1-8b-instant. Groq streams fine without it.
 
   // OpenRouter-specific: set a reasonable context window
   if (config.provider === "openrouter") {
@@ -176,44 +193,38 @@ async function getChatResponseStreamOpenAICompat(
   return new ReadableStream({
     async start(controller) {
       const decoder = new TextDecoder("utf-8");
+      // Buffer accumulates bytes until we have complete SSE lines
       let buffer = "";
+
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
+          // Append new decoded text to buffer
           buffer += decoder.decode(value, { stream: true });
+
+          // Process all complete lines (split on \n, keep trailing incomplete line)
           const lines = buffer.split("\n");
-          // Keep the last (potentially incomplete) line in the buffer
+          // The last element is either empty (line ended with \n) or an incomplete line
           buffer = lines.pop() ?? "";
 
           for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith("data:")) continue;
-            const data = trimmed.slice("data:".length).trim();
-            if (!data || data === "[DONE]") continue;
-            try {
-              const json = JSON.parse(data);
-              const piece = json?.choices?.[0]?.delta?.content;
-              if (piece) controller.enqueue(piece);
-            } catch (_) {
-              // Partial JSON chunk — skip, will be retried with buffer
-            }
+            const piece = extractContentFromSSELine(line);
+            if (piece !== null) controller.enqueue(piece);
           }
         }
 
-        // Flush remaining buffer
-        if (buffer.trim() && buffer.trim() !== "data: [DONE]") {
-          const trimmed = buffer.trim();
-          if (trimmed.startsWith("data:")) {
-            const data = trimmed.slice("data:".length).trim();
-            if (data && data !== "[DONE]") {
-              try {
-                const json = JSON.parse(data);
-                const piece = json?.choices?.[0]?.delta?.content;
-                if (piece) controller.enqueue(piece);
-              } catch (_) {}
-            }
+        // Flush the decoder
+        const finalChunk = decoder.decode(undefined, { stream: false });
+        if (finalChunk) buffer += finalChunk;
+
+        // Process any remaining complete lines in the buffer
+        if (buffer.trim()) {
+          // Handle the case where the last chunk didn't end with \n
+          for (const line of buffer.split("\n")) {
+            const piece = extractContentFromSSELine(line);
+            if (piece !== null) controller.enqueue(piece);
           }
         }
       } catch (e) {
