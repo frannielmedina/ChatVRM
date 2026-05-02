@@ -130,10 +130,30 @@ function applyPoseFile(vrm: VRM, pose: PoseFile, tag: string) {
   }
 }
 
+// ── Mixer pause/resume callbacks ──────────────────────────────────────────────
+// The AnimationMixer running idle_loop.vrma overwrites bone rotations every
+// frame, so we must pause it while a pose is active and resume after.
+// The Model class injects these callbacks so poseController doesn't need to
+// import Model (avoiding circular deps).
+
+type MixerCallback = () => void;
+let _onPoseStart: MixerCallback | null = null;
+let _onPoseEnd: MixerCallback | null = null;
+
+/** Called once by Model after the mixer is created. */
+export function registerPoseMixerCallbacks(
+  onStart: MixerCallback,
+  onEnd: MixerCallback
+) {
+  _onPoseStart = onStart;
+  _onPoseEnd = onEnd;
+}
+
 // ── Animated cycling for multi-frame poses (clap / wave) ─────────────────────
 
 let _animTimer: ReturnType<typeof setTimeout> | null = null;
 let _restoreTimer: ReturnType<typeof setTimeout> | null = null;
+let _poseActive = false;
 
 function cancelPoseTimers() {
   if (_animTimer)    { clearTimeout(_animTimer);    _animTimer    = null; }
@@ -194,12 +214,25 @@ export async function playPose(vrm: VRM, tag: string): Promise<void> {
   const poses = (await Promise.all(files.map(fetchPose))).filter(Boolean) as PoseFile[];
   if (poses.length === 0) return;
 
+  // Pause the idle animation mixer so it stops overwriting our bone rotations
+  if (!_poseActive) {
+    _poseActive = true;
+    _onPoseStart?.();
+  }
+
   const snapshot = snapshotPose(vrm);
+
+  const endPose = () => {
+    cancelPoseTimers();
+    restorePose(vrm, snapshot);
+    _poseActive = false;
+    _onPoseEnd?.();
+  };
 
   if (poses.length === 1) {
     // Static pose
     applyPoseFile(vrm, poses[0], tag);
-    _restoreTimer = setTimeout(() => restorePose(vrm, snapshot), POSE_DURATION_MS);
+    _restoreTimer = setTimeout(endPose, POSE_DURATION_MS);
   } else {
     // Cycling pose (clap / wave)
     let frame = 0;
@@ -209,13 +242,14 @@ export async function playPose(vrm: VRM, tag: string): Promise<void> {
       _animTimer = setTimeout(cycle, CYCLE_INTERVAL_MS);
     };
     cycle();
-    _restoreTimer = setTimeout(() => {
-      cancelPoseTimers();
-      restorePose(vrm, snapshot);
-    }, POSE_DURATION_MS);
+    _restoreTimer = setTimeout(endPose, POSE_DURATION_MS);
   }
 }
 
 export function cancelPose(vrm: VRM) {
+  if (_poseActive) {
+    _poseActive = false;
+    _onPoseEnd?.();
+  }
   cancelPoseTimers();
 }
