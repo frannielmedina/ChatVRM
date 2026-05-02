@@ -21,19 +21,24 @@ export const POSE_TAG_MAP: Record<string, string[]> = {
 export const ALL_POSE_TAGS = Object.keys(POSE_TAG_MAP);
 
 // ── Bones to SKIP when applying poses ────────────────────────────────────────
-// These bones are controlled by the look-at / emotion system and should not
-// be overridden by pose files, otherwise the head tilts into the face.
+// head/neck/eyes are controlled by the look-at / emotion system.
+// spine/chest/upperChest are skipped to prevent the torso from pitching
+// forward and making the head appear to tilt or sink into the body.
+// hips translation is always skipped — we never reposition the character
+// (the pose files store their capture position, not a delta).
 const SKIP_BONES = new Set([
   "head",
   "neck",
   "leftEye",
   "rightEye",
   "jaw",
-  // Spine bones cause the torso to pitch forward and cover the face
-  // on most pose files — skip them too unless it's a bow.
+  "spine",
+  "chest",
+  "upperChest",
 ]);
 
-// For "bow" we DO want the spine, so we use a separate skip list
+// For "bow" we DO want spine/chest/upperChest (the whole torso bends), but
+// still skip head/neck/eyes so the look-at system stays in control.
 const SKIP_BONES_BOW = new Set([
   "head",
   "neck",
@@ -106,18 +111,16 @@ function applyNewPose(vrm: VRM, pose: NewPoseFile, skipSet: Set<string>) {
       const [x, y, z, w] = boneData.rotation.values[0];
       node.quaternion.set(x, y, z, w);
     }
-    if (boneData.translation?.values?.length && boneName === "hips") {
-      const [tx, ty, tz] = boneData.translation.values[0];
-      const restHips = humanoid.getNormalizedBoneNode("hips");
-      if (restHips) {
-        node.position.set(tx, ty, tz);
-      }
-    }
+
+    // NEVER apply hips translation — the pose files store the absolute
+    // capture position, which differs from the model's rest position and
+    // would shift the whole skeleton (causing the head to appear to pitch).
+    // We intentionally omit the translation block here.
   }
 }
 
 function applyPoseFile(vrm: VRM, pose: PoseFile, tag: string) {
-  // For bow we allow spine bones; for everything else we skip them
+  // For bow we allow spine/chest bones; for everything else we skip them
   const skipSet = tag === "bow" ? SKIP_BONES_BOW : SKIP_BONES;
 
   if ("pose" in pose) {
