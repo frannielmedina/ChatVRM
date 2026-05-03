@@ -17,35 +17,21 @@ export const POSE_TAG_MAP: Record<string, string[]> = {
   wave:          ["/poses/wave1.json", "/poses/wave2.json"],
 };
 
-// All recognised pose tag names (for stripping from display text)
 export const ALL_POSE_TAGS = Object.keys(POSE_TAG_MAP);
 
 // ── Bones to SKIP when applying poses ────────────────────────────────────────
-// head/neck/eyes are controlled by the look-at / emotion system.
-// hips translation is always skipped.
 const SKIP_BONES = new Set([
-  "head",
-  "neck",
-  "leftEye",
-  "rightEye",
-  "jaw",
-  "spine",
-  "chest",
-  "upperChest",
+  "head", "neck", "leftEye", "rightEye", "jaw",
+  "spine", "chest", "upperChest",
 ]);
 
-// For "bow" we DO want spine/chest/upperChest
 const SKIP_BONES_BOW = new Set([
-  "head",
-  "neck",
-  "leftEye",
-  "rightEye",
-  "jaw",
+  "head", "neck", "leftEye", "rightEye", "jaw",
 ]);
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type QuatArray = [number, number, number, number]; // [x, y, z, w]
+type QuatArray = [number, number, number, number];
 
 interface LegacyPoseFile {
   version: string;
@@ -81,48 +67,20 @@ async function fetchPose(path: string): Promise<PoseFile | null> {
   }
 }
 
-// ── Per-bone override map ─────────────────────────────────────────────────────
-// This is applied EVERY FRAME after mixer.update(), so the mixer keeps running
-// (preserving blink / expressions / look-at) but the body bones are overridden.
-
+// ── Bone override map (stores immutable target quaternions) ───────────────────
 type BoneOverrideMap = Map<string, THREE.Quaternion>;
-
-// Global state for the active pose override
-let _activePoseOverrides: BoneOverrideMap | null = null;
-let _poseBlend = 0; // 0 = no pose, 1 = full pose
-let _poseTag = "";
-
-// Timers
-let _animTimer: ReturnType<typeof setTimeout> | null = null;
-let _restoreTimer: ReturnType<typeof setTimeout> | null = null;
-let _fadeTimer: ReturnType<typeof setInterval> | null = null;
-
-const POSE_DURATION_MS = 3000;
-const CYCLE_INTERVAL_MS = 400;
-const FADE_IN_DURATION_MS = 150;
-const FADE_OUT_DURATION_MS = 300;
-
-function cancelAllTimers() {
-  if (_animTimer)    { clearTimeout(_animTimer);    _animTimer    = null; }
-  if (_restoreTimer) { clearTimeout(_restoreTimer); _restoreTimer = null; }
-  if (_fadeTimer)    { clearInterval(_fadeTimer);   _fadeTimer    = null; }
-}
-
-// ── Build override map from pose file ────────────────────────────────────────
 
 function buildOverrideMap(pose: PoseFile, tag: string): BoneOverrideMap {
   const map: BoneOverrideMap = new Map();
   const skipSet = tag === "bow" ? SKIP_BONES_BOW : SKIP_BONES;
 
   if ("pose" in pose) {
-    // Legacy format
     for (const [boneName, boneData] of Object.entries((pose as LegacyPoseFile).pose)) {
       if (skipSet.has(boneName)) continue;
       const [x, y, z, w] = boneData.rotation;
       map.set(boneName, new THREE.Quaternion(x, y, z, w));
     }
   } else {
-    // New format
     for (const [boneName, boneData] of Object.entries((pose as NewPoseFile).bones)) {
       if (skipSet.has(boneName)) continue;
       if (boneData.rotation?.values?.length) {
@@ -135,64 +93,91 @@ function buildOverrideMap(pose: PoseFile, tag: string): BoneOverrideMap {
   return map;
 }
 
-// ── Apply current override to VRM (called every frame from Model.update) ─────
-// This runs AFTER mixer.update() so expressions/blink are unaffected.
+// ── Global pose state ─────────────────────────────────────────────────────────
 
-const _tmpQuat = new THREE.Quaternion();
+let _activePoseOverrides: BoneOverrideMap | null = null;
+// _poseBlend: 0 = idle, 1 = full pose, values in between = blending
+let _poseBlend = 0;
+
+// Timers
+let _animTimer:    ReturnType<typeof setTimeout>  | null = null;
+let _restoreTimer: ReturnType<typeof setTimeout>  | null = null;
+let _fadeTimer:    ReturnType<typeof setInterval> | null = null;
+
+const POSE_DURATION_MS  = 3000;
+const CYCLE_INTERVAL_MS = 400;
+const FADE_STEPS        = 12;
+const FADE_IN_STEP_MS   = 12;  // ~144ms total fade-in
+const FADE_OUT_STEP_MS  = 25;  // ~300ms total fade-out
+
+function cancelAllTimers() {
+  if (_animTimer)    { clearTimeout(_animTimer);    _animTimer    = null; }
+  if (_restoreTimer) { clearTimeout(_restoreTimer); _restoreTimer = null; }
+  if (_fadeTimer)    { clearInterval(_fadeTimer);   _fadeTimer    = null; }
+}
+
+function cancelFadeTimer() {
+  if (_fadeTimer) { clearInterval(_fadeTimer); _fadeTimer = null; }
+}
+
+// ── Per-frame override application ────────────────────────────────────────────
+// Called from Model.update() AFTER mixer.update() and emoteController.update().
+//
+// KEY FIX: We use slerpQuaternions(a, b, t) which writes into `this` (the node
+// quaternion) without mutating a or b. The stored target quaternions stay
+// immutable across frames. Without this, slerp() corrupts the target each frame.
+
+const _currentQuat = new THREE.Quaternion();
 
 export function applyPoseOverride(vrm: VRM): void {
   if (!_activePoseOverrides || _poseBlend <= 0) return;
 
   const humanoid = vrm.humanoid;
+  const t = _poseBlend;
+
   _activePoseOverrides.forEach((targetQuat, boneName) => {
     const node = humanoid.getNormalizedBoneNode(boneName as any);
     if (!node) return;
-    if (_poseBlend >= 1) {
+
+    if (t >= 1) {
+      // Full pose — direct copy, no allocation
       node.quaternion.copy(targetQuat);
     } else {
-      node.quaternion.slerp(targetQuat, _poseBlend);
+      // Save current (mixer-driven) rotation, blend toward pose target
+      _currentQuat.copy(node.quaternion);
+      node.quaternion.slerpQuaternions(_currentQuat, targetQuat, t);
     }
   });
 }
 
 // ── Fade helpers ──────────────────────────────────────────────────────────────
 
-function fadeIn(durationMs: number, onDone?: () => void) {
-  cancelFade();
-  _poseBlend = 0;
-  const steps = 10;
-  const interval = durationMs / steps;
+function startFadeIn(onDone?: () => void) {
+  cancelFadeTimer();
   let step = 0;
   _fadeTimer = setInterval(() => {
     step++;
-    _poseBlend = Math.min(1, step / steps);
-    if (step >= steps) {
-      cancelFade();
+    _poseBlend = Math.min(1, step / FADE_STEPS);
+    if (step >= FADE_STEPS) {
+      cancelFadeTimer();
       onDone?.();
     }
-  }, interval);
+  }, FADE_IN_STEP_MS);
 }
 
-function fadeOut(durationMs: number, onDone?: () => void) {
-  cancelFade();
-  _poseBlend = 1;
-  const steps = 10;
-  const interval = durationMs / steps;
+function startFadeOut(onDone?: () => void) {
+  cancelFadeTimer();
   let step = 0;
   _fadeTimer = setInterval(() => {
     step++;
-    _poseBlend = Math.max(0, 1 - step / steps);
-    if (step >= steps) {
-      cancelFade();
+    _poseBlend = Math.max(0, 1 - step / FADE_STEPS);
+    if (step >= FADE_STEPS) {
+      cancelFadeTimer();
       _activePoseOverrides = null;
       _poseBlend = 0;
       onDone?.();
     }
-  }, interval);
-}
-
-function cancelFade() {
-  if (_fadeTimer) { clearInterval(_fadeTimer); _fadeTimer = null; }
+  }, FADE_OUT_STEP_MS);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -201,42 +186,39 @@ export async function playPose(vrm: VRM, tag: string): Promise<void> {
   const files = POSE_TAG_MAP[tag];
   if (!files) return;
 
-  cancelAllTimers();
-
-  // Load all frames
+  // Load pose files (served from /public/poses/, cached after first fetch)
   const poses = (await Promise.all(files.map(fetchPose))).filter(Boolean) as PoseFile[];
   if (poses.length === 0) return;
 
-  _poseTag = tag;
+  // Cancel any running pose/fade before starting new one
+  cancelAllTimers();
 
   if (poses.length === 1) {
-    // Static pose — fade in, hold, fade out
+    // ── Static pose ──────────────────────────────────────────────────────────
     _activePoseOverrides = buildOverrideMap(poses[0], tag);
 
-    fadeIn(FADE_IN_DURATION_MS, () => {
+    startFadeIn(() => {
       _restoreTimer = setTimeout(() => {
-        fadeOut(FADE_OUT_DURATION_MS);
+        startFadeOut();
       }, POSE_DURATION_MS);
     });
-  } else {
-    // Cycling pose (clap / wave) — fade in, cycle frames, fade out
-    let frame = 0;
 
+  } else {
+    // ── Cycling pose (clap / wave) ────────────────────────────────────────────
+    let frame = 0;
     _activePoseOverrides = buildOverrideMap(poses[0], tag);
 
-    fadeIn(FADE_IN_DURATION_MS, () => {
-      // Start cycling
+    startFadeIn(() => {
       const cycle = () => {
-        frame++;
-        _activePoseOverrides = buildOverrideMap(poses[frame % poses.length], tag);
+        frame = (frame + 1) % poses.length;
+        _activePoseOverrides = buildOverrideMap(poses[frame], tag);
         _animTimer = setTimeout(cycle, CYCLE_INTERVAL_MS);
       };
       _animTimer = setTimeout(cycle, CYCLE_INTERVAL_MS);
 
-      // Stop after duration
       _restoreTimer = setTimeout(() => {
         cancelAllTimers();
-        fadeOut(FADE_OUT_DURATION_MS);
+        startFadeOut();
       }, POSE_DURATION_MS);
     });
   }
@@ -245,17 +227,15 @@ export async function playPose(vrm: VRM, tag: string): Promise<void> {
 export function cancelPose(_vrm?: VRM) {
   cancelAllTimers();
   if (_poseBlend > 0) {
-    fadeOut(FADE_OUT_DURATION_MS);
+    startFadeOut();
   } else {
     _activePoseOverrides = null;
     _poseBlend = 0;
   }
 }
 
-// Keep old callback registration as no-op for compatibility
+// No-op — kept for import compatibility
 export function registerPoseMixerCallbacks(
   _onStart: () => void,
   _onEnd: () => void
-) {
-  // No longer needed — poses are applied per-frame overlay, mixer always runs
-}
+) {}
