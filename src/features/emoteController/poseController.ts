@@ -22,10 +22,7 @@ export const ALL_POSE_TAGS = Object.keys(POSE_TAG_MAP);
 
 // ── Bones to SKIP when applying poses ────────────────────────────────────────
 // head/neck/eyes are controlled by the look-at / emotion system.
-// spine/chest/upperChest are skipped to prevent the torso from pitching
-// forward and making the head appear to tilt or sink into the body.
-// hips translation is always skipped — we never reposition the character
-// (the pose files store their capture position, not a delta).
+// hips translation is always skipped.
 const SKIP_BONES = new Set([
   "head",
   "neck",
@@ -37,8 +34,7 @@ const SKIP_BONES = new Set([
   "upperChest",
 ]);
 
-// For "bow" we DO want spine/chest/upperChest (the whole torso bends), but
-// still skip head/neck/eyes so the look-at system stays in control.
+// For "bow" we DO want spine/chest/upperChest
 const SKIP_BONES_BOW = new Set([
   "head",
   "neck",
@@ -51,14 +47,12 @@ const SKIP_BONES_BOW = new Set([
 
 type QuatArray = [number, number, number, number]; // [x, y, z, w]
 
-// Old format (bow.json, clap*.json, etc.)
 interface LegacyPoseFile {
   version: string;
   pose: Record<string, { rotation: QuatArray }>;
   yRotationOffsetDeg?: number;
 }
 
-// New format (cheer.json, wave*.json, etc.)
 interface NewPoseBone {
   rotation?: { times: number[]; values: QuatArray[] };
   translation?: { times: number[]; values: [number, number, number][] };
@@ -87,169 +81,181 @@ async function fetchPose(path: string): Promise<PoseFile | null> {
   }
 }
 
-// ── Apply a single pose file to VRM ──────────────────────────────────────────
+// ── Per-bone override map ─────────────────────────────────────────────────────
+// This is applied EVERY FRAME after mixer.update(), so the mixer keeps running
+// (preserving blink / expressions / look-at) but the body bones are overridden.
 
-function applyLegacyPose(vrm: VRM, pose: LegacyPoseFile, skipSet: Set<string>) {
-  const humanoid = vrm.humanoid;
-  for (const [boneName, boneData] of Object.entries(pose.pose)) {
-    if (skipSet.has(boneName)) continue;
-    const node = humanoid.getNormalizedBoneNode(boneName as any);
-    if (!node) continue;
-    const [x, y, z, w] = boneData.rotation;
-    node.quaternion.set(x, y, z, w);
-  }
+type BoneOverrideMap = Map<string, THREE.Quaternion>;
+
+// Global state for the active pose override
+let _activePoseOverrides: BoneOverrideMap | null = null;
+let _poseBlend = 0; // 0 = no pose, 1 = full pose
+let _poseTag = "";
+
+// Timers
+let _animTimer: ReturnType<typeof setTimeout> | null = null;
+let _restoreTimer: ReturnType<typeof setTimeout> | null = null;
+let _fadeTimer: ReturnType<typeof setInterval> | null = null;
+
+const POSE_DURATION_MS = 3000;
+const CYCLE_INTERVAL_MS = 400;
+const FADE_IN_DURATION_MS = 150;
+const FADE_OUT_DURATION_MS = 300;
+
+function cancelAllTimers() {
+  if (_animTimer)    { clearTimeout(_animTimer);    _animTimer    = null; }
+  if (_restoreTimer) { clearTimeout(_restoreTimer); _restoreTimer = null; }
+  if (_fadeTimer)    { clearInterval(_fadeTimer);   _fadeTimer    = null; }
 }
 
-function applyNewPose(vrm: VRM, pose: NewPoseFile, skipSet: Set<string>) {
-  const humanoid = vrm.humanoid;
-  for (const [boneName, boneData] of Object.entries(pose.bones)) {
-    if (skipSet.has(boneName)) continue;
-    const node = humanoid.getNormalizedBoneNode(boneName as any);
-    if (!node) continue;
+// ── Build override map from pose file ────────────────────────────────────────
 
-    if (boneData.rotation?.values?.length) {
-      const [x, y, z, w] = boneData.rotation.values[0];
-      node.quaternion.set(x, y, z, w);
-    }
-
-    // NEVER apply hips translation — the pose files store the absolute
-    // capture position, which differs from the model's rest position and
-    // would shift the whole skeleton (causing the head to appear to pitch).
-    // We intentionally omit the translation block here.
-  }
-}
-
-function applyPoseFile(vrm: VRM, pose: PoseFile, tag: string) {
-  // For bow we allow spine/chest bones; for everything else we skip them
+function buildOverrideMap(pose: PoseFile, tag: string): BoneOverrideMap {
+  const map: BoneOverrideMap = new Map();
   const skipSet = tag === "bow" ? SKIP_BONES_BOW : SKIP_BONES;
 
   if ("pose" in pose) {
-    applyLegacyPose(vrm, pose as LegacyPoseFile, skipSet);
+    // Legacy format
+    for (const [boneName, boneData] of Object.entries((pose as LegacyPoseFile).pose)) {
+      if (skipSet.has(boneName)) continue;
+      const [x, y, z, w] = boneData.rotation;
+      map.set(boneName, new THREE.Quaternion(x, y, z, w));
+    }
   } else {
-    applyNewPose(vrm, pose as NewPoseFile, skipSet);
+    // New format
+    for (const [boneName, boneData] of Object.entries((pose as NewPoseFile).bones)) {
+      if (skipSet.has(boneName)) continue;
+      if (boneData.rotation?.values?.length) {
+        const [x, y, z, w] = boneData.rotation.values[0];
+        map.set(boneName, new THREE.Quaternion(x, y, z, w));
+      }
+    }
   }
+
+  return map;
 }
 
-// ── Mixer pause/resume callbacks ──────────────────────────────────────────────
-// The AnimationMixer running idle_loop.vrma overwrites bone rotations every
-// frame, so we must pause it while a pose is active and resume after.
-// The Model class injects these callbacks so poseController doesn't need to
-// import Model (avoiding circular deps).
+// ── Apply current override to VRM (called every frame from Model.update) ─────
+// This runs AFTER mixer.update() so expressions/blink are unaffected.
 
-type MixerCallback = () => void;
-let _onPoseStart: MixerCallback | null = null;
-let _onPoseEnd: MixerCallback | null = null;
+const _tmpQuat = new THREE.Quaternion();
 
-/** Called once by Model after the mixer is created. */
-export function registerPoseMixerCallbacks(
-  onStart: MixerCallback,
-  onEnd: MixerCallback
-) {
-  _onPoseStart = onStart;
-  _onPoseEnd = onEnd;
-}
+export function applyPoseOverride(vrm: VRM): void {
+  if (!_activePoseOverrides || _poseBlend <= 0) return;
 
-// ── Animated cycling for multi-frame poses (clap / wave) ─────────────────────
-
-let _animTimer: ReturnType<typeof setTimeout> | null = null;
-let _restoreTimer: ReturnType<typeof setTimeout> | null = null;
-let _poseActive = false;
-
-function cancelPoseTimers() {
-  if (_animTimer)    { clearTimeout(_animTimer);    _animTimer    = null; }
-  if (_restoreTimer) { clearTimeout(_restoreTimer); _restoreTimer = null; }
-}
-
-/** Bones we snapshot & restore (excludes head/neck/eyes — those are untouched) */
-const SNAPSHOT_BONES = [
-  "hips", "spine", "chest", "upperChest",
-  "leftShoulder",  "leftUpperArm",  "leftLowerArm",  "leftHand",
-  "rightShoulder", "rightUpperArm", "rightLowerArm", "rightHand",
-  "leftUpperLeg",  "leftLowerLeg",  "leftFoot",
-  "rightUpperLeg", "rightLowerLeg", "rightFoot",
-  // fingers
-  "leftThumbMetacarpal",  "leftThumbProximal",  "leftThumbDistal",
-  "leftIndexProximal",    "leftIndexIntermediate",    "leftIndexDistal",
-  "leftMiddleProximal",   "leftMiddleIntermediate",   "leftMiddleDistal",
-  "leftRingProximal",     "leftRingIntermediate",     "leftRingDistal",
-  "leftLittleProximal",   "leftLittleIntermediate",   "leftLittleDistal",
-  "rightThumbMetacarpal", "rightThumbProximal", "rightThumbDistal",
-  "rightIndexProximal",   "rightIndexIntermediate",   "rightIndexDistal",
-  "rightMiddleProximal",  "rightMiddleIntermediate",  "rightMiddleDistal",
-  "rightRingProximal",    "rightRingIntermediate",    "rightRingDistal",
-  "rightLittleProximal",  "rightLittleIntermediate",  "rightLittleDistal",
-];
-
-/** Save the current normalized bone rotations so we can restore them */
-function snapshotPose(vrm: VRM): Map<string, THREE.Quaternion> {
-  const snap = new Map<string, THREE.Quaternion>();
   const humanoid = vrm.humanoid;
-  for (const name of SNAPSHOT_BONES) {
-    const node = humanoid.getNormalizedBoneNode(name as any);
-    if (node) snap.set(name, node.quaternion.clone());
-  }
-  return snap;
-}
-
-function restorePose(vrm: VRM, snap: Map<string, THREE.Quaternion>) {
-  const humanoid = vrm.humanoid;
-  snap.forEach((quat, name) => {
-    const node = humanoid.getNormalizedBoneNode(name as any);
-    if (node) node.quaternion.copy(quat);
+  _activePoseOverrides.forEach((targetQuat, boneName) => {
+    const node = humanoid.getNormalizedBoneNode(boneName as any);
+    if (!node) return;
+    if (_poseBlend >= 1) {
+      node.quaternion.copy(targetQuat);
+    } else {
+      node.quaternion.slerp(targetQuat, _poseBlend);
+    }
   });
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// ── Fade helpers ──────────────────────────────────────────────────────────────
 
-const POSE_DURATION_MS  = 3000; // how long to hold a pose before restoring
-const CYCLE_INTERVAL_MS = 400;  // clap / wave cycle speed
+function fadeIn(durationMs: number, onDone?: () => void) {
+  cancelFade();
+  _poseBlend = 0;
+  const steps = 10;
+  const interval = durationMs / steps;
+  let step = 0;
+  _fadeTimer = setInterval(() => {
+    step++;
+    _poseBlend = Math.min(1, step / steps);
+    if (step >= steps) {
+      cancelFade();
+      onDone?.();
+    }
+  }, interval);
+}
+
+function fadeOut(durationMs: number, onDone?: () => void) {
+  cancelFade();
+  _poseBlend = 1;
+  const steps = 10;
+  const interval = durationMs / steps;
+  let step = 0;
+  _fadeTimer = setInterval(() => {
+    step++;
+    _poseBlend = Math.max(0, 1 - step / steps);
+    if (step >= steps) {
+      cancelFade();
+      _activePoseOverrides = null;
+      _poseBlend = 0;
+      onDone?.();
+    }
+  }, interval);
+}
+
+function cancelFade() {
+  if (_fadeTimer) { clearInterval(_fadeTimer); _fadeTimer = null; }
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 export async function playPose(vrm: VRM, tag: string): Promise<void> {
   const files = POSE_TAG_MAP[tag];
   if (!files) return;
 
-  cancelPoseTimers();
+  cancelAllTimers();
 
   // Load all frames
   const poses = (await Promise.all(files.map(fetchPose))).filter(Boolean) as PoseFile[];
   if (poses.length === 0) return;
 
-  // Pause the idle animation mixer so it stops overwriting our bone rotations
-  if (!_poseActive) {
-    _poseActive = true;
-    _onPoseStart?.();
-  }
-
-  const snapshot = snapshotPose(vrm);
-
-  const endPose = () => {
-    cancelPoseTimers();
-    restorePose(vrm, snapshot);
-    _poseActive = false;
-    _onPoseEnd?.();
-  };
+  _poseTag = tag;
 
   if (poses.length === 1) {
-    // Static pose
-    applyPoseFile(vrm, poses[0], tag);
-    _restoreTimer = setTimeout(endPose, POSE_DURATION_MS);
+    // Static pose — fade in, hold, fade out
+    _activePoseOverrides = buildOverrideMap(poses[0], tag);
+
+    fadeIn(FADE_IN_DURATION_MS, () => {
+      _restoreTimer = setTimeout(() => {
+        fadeOut(FADE_OUT_DURATION_MS);
+      }, POSE_DURATION_MS);
+    });
   } else {
-    // Cycling pose (clap / wave)
+    // Cycling pose (clap / wave) — fade in, cycle frames, fade out
     let frame = 0;
-    const cycle = () => {
-      applyPoseFile(vrm, poses[frame % poses.length], tag);
-      frame++;
+
+    _activePoseOverrides = buildOverrideMap(poses[0], tag);
+
+    fadeIn(FADE_IN_DURATION_MS, () => {
+      // Start cycling
+      const cycle = () => {
+        frame++;
+        _activePoseOverrides = buildOverrideMap(poses[frame % poses.length], tag);
+        _animTimer = setTimeout(cycle, CYCLE_INTERVAL_MS);
+      };
       _animTimer = setTimeout(cycle, CYCLE_INTERVAL_MS);
-    };
-    cycle();
-    _restoreTimer = setTimeout(endPose, POSE_DURATION_MS);
+
+      // Stop after duration
+      _restoreTimer = setTimeout(() => {
+        cancelAllTimers();
+        fadeOut(FADE_OUT_DURATION_MS);
+      }, POSE_DURATION_MS);
+    });
   }
 }
 
-export function cancelPose(vrm: VRM) {
-  if (_poseActive) {
-    _poseActive = false;
-    _onPoseEnd?.();
+export function cancelPose(_vrm?: VRM) {
+  cancelAllTimers();
+  if (_poseBlend > 0) {
+    fadeOut(FADE_OUT_DURATION_MS);
+  } else {
+    _activePoseOverrides = null;
+    _poseBlend = 0;
   }
-  cancelPoseTimers();
+}
+
+// Keep old callback registration as no-op for compatibility
+export function registerPoseMixerCallbacks(
+  _onStart: () => void,
+  _onEnd: () => void
+) {
+  // No longer needed — poses are applied per-frame overlay, mixer always runs
 }
