@@ -6,7 +6,12 @@ import { VRMLookAtSmootherLoaderPlugin } from "@/lib/VRMLookAtSmootherLoaderPlug
 import { LipSync } from "../lipSync/lipSync";
 import { EmoteController } from "../emoteController/emoteController";
 import { Screenplay } from "../messages/messages";
-import { playPose, cancelPose, registerPoseMixerCallbacks } from "../emoteController/poseController";
+import {
+  playPose,
+  cancelPose,
+  applyPoseOverride,
+  registerPoseMixerCallbacks,
+} from "../emoteController/poseController";
 
 export class Model {
   public vrm?: VRM | null;
@@ -15,8 +20,6 @@ export class Model {
 
   private _lookAtTargetParent: THREE.Object3D;
   private _lipSync?: LipSync;
-  // Track whether the mixer is paused for a pose
-  private _mixerPaused = false;
 
   constructor(lookAtTargetParent: THREE.Object3D) {
     this._lookAtTargetParent = lookAtTargetParent;
@@ -38,20 +41,8 @@ export class Model {
     this.mixer = new THREE.AnimationMixer(vrm.scene);
     this.emoteController = new EmoteController(vrm, this._lookAtTargetParent);
 
-    // Register callbacks so poseController can pause/resume the idle animation.
-    // When a pose starts, we pause the mixer so it stops overwriting bone
-    // rotations. When the pose ends, we resume normal idle animation.
-    registerPoseMixerCallbacks(
-      () => {
-        // Pause: set mixer time scale to 0 so it keeps the current frame
-        // but stops advancing (bone rotations from poses are preserved).
-        this._mixerPaused = true;
-      },
-      () => {
-        // Resume: re-enable the mixer so the idle animation takes back over.
-        this._mixerPaused = false;
-      }
-    );
+    // No-op — pose system no longer pauses the mixer
+    registerPoseMixerCallbacks(() => {}, () => {});
   }
 
   public unLoadVrm() {
@@ -73,18 +64,12 @@ export class Model {
   public async speak(buffer: ArrayBuffer, screenplay: Screenplay) {
     this.emoteController?.playEmotion(screenplay.expression);
 
-    // Trigger pose gesture if present (fire-and-forget — it self-restores).
-    // playPose pauses the mixer internally so the idle animation does not
-    // override the pose bone rotations.
     if (screenplay.pose && this.vrm) {
       playPose(this.vrm, screenplay.pose);
     }
 
     await new Promise((resolve) => {
       this._lipSync?.playFromArrayBuffer(buffer, () => {
-        // Reset to neutral expression once TTS audio finishes playing.
-        // Note: we do NOT cancel the pose here — the pose has its own
-        // independent timer (POSE_DURATION_MS) and self-restores.
         this.emoteController?.playEmotion("neutral");
         resolve(true);
       });
@@ -92,19 +77,29 @@ export class Model {
   }
 
   public update(delta: number): void {
+    // 1. Lip sync volume sampling
     if (this._lipSync) {
       const { volume } = this._lipSync.update();
       this.emoteController?.lipSync("aa", volume);
     }
+
+    // 2. Expression controller: blink, lip sync weights, look-at
+    //    This runs independently of the mixer — always works.
     this.emoteController?.update(delta);
 
-    // Only advance the mixer when no pose is active.
-    // When a pose is active (_mixerPaused = true), we skip mixer.update()
-    // so the idle animation does not overwrite the pose bone rotations.
-    if (!this._mixerPaused) {
-      this.mixer?.update(delta);
+    // 3. Idle animation mixer — ALWAYS runs (never paused).
+    //    This drives body/arm bones via the idle_loop.vrma animation.
+    this.mixer?.update(delta);
+
+    // 4. Pose override — applied AFTER the mixer so the idle animation
+    //    can't overwrite our pose bone rotations this frame.
+    //    Only non-head/neck/eye bones are overridden, so blink and
+    //    look-at continue working perfectly throughout.
+    if (this.vrm) {
+      applyPoseOverride(this.vrm);
     }
 
+    // 5. VRM final update: spring bones, look-at applier, etc.
     this.vrm?.update(delta);
   }
 }
