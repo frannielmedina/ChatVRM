@@ -95,25 +95,40 @@ function buildOverrideMap(pose: PoseFile, tag: string): BoneOverrideMap {
 
 // ── Global pose state ─────────────────────────────────────────────────────────
 
+// Static poses: a single override map applied at full weight.
 let _activePoseOverrides: BoneOverrideMap | null = null;
-// _poseBlend: 0 = idle, 1 = full pose, values in between = blending
+
+// Cycling poses (wave / clap): two maps + a continuously driven lerp factor.
+// applyPoseOverride() slerpQuaternions between _cycleFrom and _cycleTo using _cycleT.
+let _cycleFrom: BoneOverrideMap | null = null;
+let _cycleTo:   BoneOverrideMap | null = null;
+let _cycleT     = 0;   // 0 = _cycleFrom, 1 = _cycleTo
+let _cycleDir   = 1;   // oscillates: +1 forward, -1 backward
+let _isCycling  = false;
+
+// Master blend: 0 = no override, 1 = full pose (driven by fade in/out)
 let _poseBlend = 0;
 
 // Timers
-let _animTimer:    ReturnType<typeof setTimeout>  | null = null;
+let _cycleTimer:   ReturnType<typeof setInterval> | null = null;
 let _restoreTimer: ReturnType<typeof setTimeout>  | null = null;
 let _fadeTimer:    ReturnType<typeof setInterval> | null = null;
 
-const POSE_DURATION_MS  = 3000;
-const CYCLE_INTERVAL_MS = 400;
-const FADE_STEPS        = 12;
-const FADE_IN_STEP_MS   = 12;  // ~144ms total fade-in
-const FADE_OUT_STEP_MS  = 25;  // ~300ms total fade-out
+const POSE_DURATION_MS = 3000;
+
+// One full A→B swing takes this many ms.  Two swings = one complete oscillation.
+const CYCLE_SWING_MS   = 350;
+// Tick rate for the cycle lerp driver (~60 fps equivalent)
+const CYCLE_TICK_MS    = 16;
+
+const FADE_STEPS       = 12;
+const FADE_IN_STEP_MS  = 12;   // ~144ms total fade-in
+const FADE_OUT_STEP_MS = 25;   // ~300ms total fade-out
 
 function cancelAllTimers() {
-  if (_animTimer)    { clearTimeout(_animTimer);    _animTimer    = null; }
-  if (_restoreTimer) { clearTimeout(_restoreTimer); _restoreTimer = null; }
-  if (_fadeTimer)    { clearInterval(_fadeTimer);   _fadeTimer    = null; }
+  if (_cycleTimer)   { clearInterval(_cycleTimer);   _cycleTimer   = null; }
+  if (_restoreTimer) { clearTimeout(_restoreTimer);  _restoreTimer = null; }
+  if (_fadeTimer)    { clearInterval(_fadeTimer);    _fadeTimer    = null; }
 }
 
 function cancelFadeTimer() {
@@ -122,32 +137,62 @@ function cancelFadeTimer() {
 
 // ── Per-frame override application ────────────────────────────────────────────
 // Called from Model.update() AFTER mixer.update() and emoteController.update().
-//
-// KEY FIX: We use slerpQuaternions(a, b, t) which writes into `this` (the node
-// quaternion) without mutating a or b. The stored target quaternions stay
-// immutable across frames. Without this, slerp() corrupts the target each frame.
 
-const _currentQuat = new THREE.Quaternion();
+const _tmpA = new THREE.Quaternion();
+const _tmpB = new THREE.Quaternion();
 
 export function applyPoseOverride(vrm: VRM): void {
-  if (!_activePoseOverrides || _poseBlend <= 0) return;
+  if (_poseBlend <= 0) return;
 
   const humanoid = vrm.humanoid;
-  const t = _poseBlend;
+  const outerT   = _poseBlend; // master fade blend
 
-  _activePoseOverrides.forEach((targetQuat, boneName) => {
-    const node = humanoid.getNormalizedBoneNode(boneName as any);
-    if (!node) return;
+  if (_isCycling && _cycleFrom && _cycleTo) {
+    // ── Cycling pose: slerp between the two keyframe maps using _cycleT ──────
+    const innerT = _cycleT;
 
-    if (t >= 1) {
-      // Full pose — direct copy, no allocation
-      node.quaternion.copy(targetQuat);
-    } else {
-      // Save current (mixer-driven) rotation, blend toward pose target
-      _currentQuat.copy(node.quaternion);
-      node.quaternion.slerpQuaternions(_currentQuat, targetQuat, t);
-    }
-  });
+    // Collect all bone names from both maps
+    const bones = new Set([..._cycleFrom.keys(), ..._cycleTo.keys()]);
+
+    bones.forEach((boneName) => {
+      const node = humanoid.getNormalizedBoneNode(boneName as any);
+      if (!node) return;
+
+      const quatFrom = _cycleFrom!.get(boneName);
+      const quatTo   = _cycleTo!.get(boneName);
+
+      let targetQuat: THREE.Quaternion;
+
+      if (quatFrom && quatTo) {
+        // Interpolate between the two pose frames
+        _tmpA.copy(quatFrom);
+        _tmpB.copy(quatTo);
+        _tmpA.slerp(_tmpB, innerT); // _tmpA now holds the blended target
+        targetQuat = _tmpA;
+      } else {
+        targetQuat = (quatFrom ?? quatTo)!;
+      }
+
+      if (outerT >= 1) {
+        node.quaternion.copy(targetQuat);
+      } else {
+        // Also blend against the mixer-driven current rotation
+        node.quaternion.slerp(targetQuat, outerT);
+      }
+    });
+
+  } else if (_activePoseOverrides) {
+    // ── Static pose ───────────────────────────────────────────────────────────
+    _activePoseOverrides.forEach((targetQuat, boneName) => {
+      const node = humanoid.getNormalizedBoneNode(boneName as any);
+      if (!node) return;
+      if (outerT >= 1) {
+        node.quaternion.copy(targetQuat);
+      } else {
+        node.quaternion.slerp(targetQuat, outerT);
+      }
+    });
+  }
 }
 
 // ── Fade helpers ──────────────────────────────────────────────────────────────
@@ -174,10 +219,37 @@ function startFadeOut(onDone?: () => void) {
     if (step >= FADE_STEPS) {
       cancelFadeTimer();
       _activePoseOverrides = null;
-      _poseBlend = 0;
+      _cycleFrom  = null;
+      _cycleTo    = null;
+      _isCycling  = false;
+      _poseBlend  = 0;
       onDone?.();
     }
   }, FADE_OUT_STEP_MS);
+}
+
+// ── Cycling oscillator ────────────────────────────────────────────────────────
+// Drives _cycleT back and forth between 0 and 1 smoothly.
+
+function startCycleOscillator() {
+  if (_cycleTimer) { clearInterval(_cycleTimer); _cycleTimer = null; }
+
+  // How much to advance _cycleT per tick so that one full swing takes CYCLE_SWING_MS
+  const step = CYCLE_TICK_MS / CYCLE_SWING_MS;
+
+  _cycleT   = 0;
+  _cycleDir = 1;
+
+  _cycleTimer = setInterval(() => {
+    _cycleT += _cycleDir * step;
+    if (_cycleT >= 1) {
+      _cycleT   = 1;
+      _cycleDir = -1;
+    } else if (_cycleT <= 0) {
+      _cycleT   = 0;
+      _cycleDir = 1;
+    }
+  }, CYCLE_TICK_MS);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -186,15 +258,16 @@ export async function playPose(vrm: VRM, tag: string): Promise<void> {
   const files = POSE_TAG_MAP[tag];
   if (!files) return;
 
-  // Load pose files (served from /public/poses/, cached after first fetch)
   const poses = (await Promise.all(files.map(fetchPose))).filter(Boolean) as PoseFile[];
   if (poses.length === 0) return;
 
-  // Cancel any running pose/fade before starting new one
   cancelAllTimers();
 
   if (poses.length === 1) {
     // ── Static pose ──────────────────────────────────────────────────────────
+    _isCycling           = false;
+    _cycleFrom           = null;
+    _cycleTo             = null;
     _activePoseOverrides = buildOverrideMap(poses[0], tag);
 
     startFadeIn(() => {
@@ -204,18 +277,18 @@ export async function playPose(vrm: VRM, tag: string): Promise<void> {
     });
 
   } else {
-    // ── Cycling pose (clap / wave) ────────────────────────────────────────────
-    let frame = 0;
-    _activePoseOverrides = buildOverrideMap(poses[0], tag);
+    // ── Cycling pose (wave / clap) ────────────────────────────────────────────
+    // Instead of snapping between frames every 400ms, we continuously slerp
+    // between _cycleFrom and _cycleTo using an oscillating _cycleT value.
+    _isCycling           = true;
+    _activePoseOverrides = null;
+    _cycleFrom           = buildOverrideMap(poses[0], tag);
+    _cycleTo             = buildOverrideMap(poses[1], tag);
+
+    // Start the smooth oscillator immediately so motion begins on fade-in
+    startCycleOscillator();
 
     startFadeIn(() => {
-      const cycle = () => {
-        frame = (frame + 1) % poses.length;
-        _activePoseOverrides = buildOverrideMap(poses[frame], tag);
-        _animTimer = setTimeout(cycle, CYCLE_INTERVAL_MS);
-      };
-      _animTimer = setTimeout(cycle, CYCLE_INTERVAL_MS);
-
       _restoreTimer = setTimeout(() => {
         cancelAllTimers();
         startFadeOut();
@@ -230,7 +303,10 @@ export function cancelPose(_vrm?: VRM) {
     startFadeOut();
   } else {
     _activePoseOverrides = null;
-    _poseBlend = 0;
+    _cycleFrom  = null;
+    _cycleTo    = null;
+    _isCycling  = false;
+    _poseBlend  = 0;
   }
 }
 
