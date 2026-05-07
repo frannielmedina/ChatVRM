@@ -18,6 +18,7 @@ import { Meta } from "@/components/meta";
 import { TwitchOverlay } from "@/components/twitchOverlay";
 import { ScreenShareBackground } from "@/components/screenShareBackground";
 import { BackgroundRenderer } from "@/components/backgroundRenderer";
+import { LoadingScreen } from "@/components/loadingScreen";
 import { TTSConfig, DEFAULT_TTS_CONFIG } from "@/features/tts/ttsConfig";
 import {
   TwitchConfig,
@@ -43,10 +44,18 @@ import {
 import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 import { useAutoHide } from "@/hooks/useAutoHide";
 import { CaptionStyle, DEFAULT_CAPTION_STYLE } from "@/components/captionSettings";
+import { buildUrl } from "@/utils/buildUrl";
+
+// VRM model localStorage key
+const VRM_URL_KEY = "chatVRM_lastVrmUrl";
+const VRM_IS_DEFAULT_KEY = "chatVRM_isDefaultVrm";
 
 export default function Home() {
   const { viewer } = useContext(ViewerContext);
   const uiVisible = useAutoHide(3000);
+
+  // Loading screen state
+  const [isLoading, setIsLoading] = useState(true);
 
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(DEFAULT_AI_CONFIG);
@@ -74,8 +83,9 @@ export default function Home() {
 
   const sendChatRef = useRef<(text: string) => Promise<void>>(async () => {});
   const twitchUnsubRef = useRef<(() => void) | null>(null);
+  const twitchCmdUnsubRef = useRef<(() => void) | null>(null);
 
-  // ── Persist settings to localStorage ────────────────────────────────────
+  // ── Persist / restore settings ─────────────────────────────────────────────
   useEffect(() => {
     const saved = window.localStorage.getItem("chatVRMParams");
     if (saved) {
@@ -114,14 +124,85 @@ export default function Home() {
     );
   }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle]);
 
-  useEffect(() => {
-    return () => {
-      twitchUnsubRef.current?.();
-      twitchUnsubRef.current = null;
-    };
-  }, []);
+  // ── VRM model persistence ──────────────────────────────────────────────────
+  // After viewer is ready + loading complete, restore the last-used VRM model.
+  // If no custom model was saved, load the default one.
+  const [viewerReady, setViewerReady] = useState(false);
 
-  // ── Load settings from file ──────────────────────────────────────────────
+  useEffect(() => {
+    // Poll until viewer is ready
+    const check = setInterval(() => {
+      if (viewer.isReady) {
+        setViewerReady(true);
+        clearInterval(check);
+      }
+    }, 100);
+    return () => clearInterval(check);
+  }, [viewer]);
+
+  useEffect(() => {
+    if (!viewerReady || isLoading) return;
+
+    const savedUrl = localStorage.getItem(VRM_URL_KEY);
+    const isDefault = localStorage.getItem(VRM_IS_DEFAULT_KEY);
+
+    if (savedUrl && isDefault !== "true") {
+      // Restore custom VRM model
+      viewer.loadVrm(savedUrl);
+    } else {
+      // Load default model and mark it
+      const defaultUrl = buildUrl("/AvatarSample_B.vrm");
+      viewer.loadVrm(defaultUrl);
+      localStorage.setItem(VRM_URL_KEY, defaultUrl);
+      localStorage.setItem(VRM_IS_DEFAULT_KEY, "true");
+    }
+  }, [viewerReady, isLoading, viewer]);
+
+  // ── VRM file load handler (from menu) ─────────────────────────────────────
+  // We need to intercept the VRM load to save it to localStorage
+  const handleVrmFileLoad = useCallback((url: string) => {
+    viewer.loadVrm(url);
+    localStorage.setItem(VRM_URL_KEY, url);
+    localStorage.setItem(VRM_IS_DEFAULT_KEY, "false");
+  }, [viewer]);
+
+  // ── Save settings ──────────────────────────────────────────────────────────
+  const saveSettingsNow = useCallback(() => {
+    window.localStorage.setItem(
+      "chatVRMParams",
+      JSON.stringify({
+        systemPrompt,
+        koeiroParam,
+        chatLog,
+        aiConfig,
+        ttsConfig,
+        twitchConfig,
+        backgroundConfig,
+        captionStyle,
+      })
+    );
+  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle]);
+
+  // ── !reset command handler ─────────────────────────────────────────────────
+  // Resets: clears chat history, reloads saved custom VRM (not default),
+  // keeps Twitch connected
+  const handleResetCommand = useCallback(() => {
+    // Clear chat history only
+    setChatLog([]);
+    setAssistantMessage("");
+
+    // Reload the VRM model that was set in settings (not the hard-coded default)
+    const savedUrl = localStorage.getItem(VRM_URL_KEY);
+    if (savedUrl) {
+      viewer.loadVrm(savedUrl);
+    } else {
+      viewer.loadVrm(buildUrl("/AvatarSample_B.vrm"));
+    }
+
+    console.log("[!reset] Chat cleared and VRM reloaded.");
+  }, [viewer]);
+
+  // ── Load settings from file ────────────────────────────────────────────────
   const handleLoadSettings = useCallback((snapshot: SettingsSnapshot) => {
     setSystemPrompt(snapshot.systemPrompt);
     setAiConfig({ ...DEFAULT_AI_CONFIG, ...snapshot.aiConfig });
@@ -134,7 +215,7 @@ export default function Home() {
     });
   }, []);
 
-  // ── Chat log handlers ────────────────────────────────────────────────────
+  // ── Chat log handlers ──────────────────────────────────────────────────────
   const handleChangeChatLog = useCallback(
     (targetIndex: number, text: string) => {
       setChatLog((prev) =>
@@ -144,7 +225,7 @@ export default function Home() {
     []
   );
 
-  // ── Speak AI ────────────────────────────────────────────────────────────
+  // ── Speak AI ───────────────────────────────────────────────────────────────
   const handleSpeakAi = useCallback(
     async (
       screenplay: Screenplay,
@@ -156,7 +237,7 @@ export default function Home() {
     [viewer, ttsConfig, koeiroParam]
   );
 
-  // ── Send chat ────────────────────────────────────────────────────────────
+  // ── Send chat ──────────────────────────────────────────────────────────────
   const handleSendChat = useCallback(
     async (text: string) => {
       const providerMeta = getProviderMeta(aiConfig.provider);
@@ -267,10 +348,10 @@ export default function Home() {
     sendChatRef.current = handleSendChat;
   }, [handleSendChat]);
 
-  // ── Twitch ───────────────────────────────────────────────────────────────
+  // ── Twitch ─────────────────────────────────────────────────────────────────
   const handleTwitchConnect = useCallback(() => {
     twitchUnsubRef.current?.();
-    twitchUnsubRef.current = null;
+    twitchCmdUnsubRef.current?.();
 
     twitchClient.connect(twitchConfig.channel, twitchConfig.oauthToken);
 
@@ -278,26 +359,43 @@ export default function Home() {
       setTwitchMessages((prev) => [...prev.slice(-49), msg]);
       if (twitchConfig.respondToChat && !chatProcessing) {
         const trimmed = msg.message.trim();
-        const startsWithHash = trimmed.startsWith("#");
+        if (trimmed.startsWith("!")) return; // skip commands
         const startsWithMention = /^@\S+/.test(trimmed);
-        if (startsWithHash || startsWithMention) return;
+        if (startsWithMention) return;
         const prompt = `[Twitch chat] ${msg.username}: ${msg.message}`;
         sendChatRef.current(prompt);
       }
     });
 
+    // Register !reset command for mods/broadcaster
+    const cmdUnsub = twitchClient.onCommand((command) => {
+      if (command === "!reset") {
+        handleResetCommand();
+      }
+    });
+
     twitchUnsubRef.current = unsub;
+    twitchCmdUnsubRef.current = cmdUnsub;
     setTwitchConnected(true);
-  }, [twitchConfig, chatProcessing]);
+  }, [twitchConfig, chatProcessing, handleResetCommand]);
 
   const handleTwitchDisconnect = useCallback(() => {
     twitchClient.disconnect();
     setTwitchConnected(false);
     twitchUnsubRef.current?.();
+    twitchCmdUnsubRef.current?.();
     twitchUnsubRef.current = null;
+    twitchCmdUnsubRef.current = null;
   }, []);
 
-  // ── Screen Share ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      twitchUnsubRef.current?.();
+      twitchCmdUnsubRef.current?.();
+    };
+  }, []);
+
+  // ── Screen Share ───────────────────────────────────────────────────────────
   const handleScreenShareStop = useCallback(() => {
     stopScreenShare();
     setScreenStream(null);
@@ -332,6 +430,11 @@ export default function Home() {
   return (
     <div className={"font-M_PLUS_2"}>
       <Meta />
+
+      {/* Loading screen */}
+      {isLoading && (
+        <LoadingScreen onComplete={() => setIsLoading(false)} />
+      )}
 
       <BackgroundRenderer config={backgroundConfig} />
 
@@ -387,6 +490,8 @@ export default function Home() {
         onChangeBackgroundConfig={setBackgroundConfig}
         onChangeCaptionStyle={setCaptionStyle}
         onLoadSettings={handleLoadSettings}
+        onSaveSettings={saveSettingsNow}
+        onVrmFileLoad={handleVrmFileLoad}
       />
 
       {/* GitHub link — auto-hide */}
