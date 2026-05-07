@@ -3,6 +3,8 @@ export type TwitchMessage = {
   message: string;
   color: string;
   timestamp: number;
+  isMod?: boolean;
+  isBroadcaster?: boolean;
 };
 
 export type TwitchConfig = {
@@ -22,12 +24,14 @@ export const DEFAULT_TWITCH_CONFIG: TwitchConfig = {
 };
 
 type MessageHandler = (msg: TwitchMessage) => void;
+type CommandHandler = (command: string, msg: TwitchMessage) => void;
 
 export class TwitchClient {
   private ws: WebSocket | null = null;
   private channel = "";
   private reconnectTimer: any = null;
   private handlers: MessageHandler[] = [];
+  private commandHandlers: CommandHandler[] = [];
   private pingInterval: any = null;
 
   connect(channel: string, oauthToken?: string) {
@@ -41,6 +45,7 @@ export class TwitchClient {
       this.ws!.send(`PASS oauth:${token}`);
       this.ws!.send(`NICK justinfan${Math.floor(Math.random() * 99999)}`);
       this.ws!.send(`JOIN #${this.channel}`);
+      // Request tags for mod/broadcaster status
       this.ws!.send("CAP REQ :twitch.tv/tags");
       console.log(`[Twitch] Connected to #${this.channel}`);
 
@@ -53,7 +58,6 @@ export class TwitchClient {
 
     this.ws.onmessage = (event) => {
       const raw = event.data as string;
-      // Handle PONG
       if (raw.startsWith("PING")) {
         this.ws?.send("PONG :tmi.twitch.tv");
         return;
@@ -90,16 +94,22 @@ export class TwitchClient {
     };
   }
 
+  onCommand(handler: CommandHandler) {
+    this.commandHandlers.push(handler);
+    return () => {
+      this.commandHandlers = this.commandHandlers.filter((h) => h !== handler);
+    };
+  }
+
   private parseMessage(raw: string) {
-    // Parse Twitch IRC with tags
     const lines = raw.split("\r\n").filter(Boolean);
     for (const line of lines) {
-      // Tags line: @key=value;key=value :user!user@user.tmi.twitch.tv PRIVMSG #channel :message
-      const tagMatch = line.match(/^@([^ ]+) :(\S+)!.*PRIVMSG #\S+ :(.+)$/);
+      const tagMatch = line.match(/^@([^ ]+) :(\S+)!.*PRIVMSG #(\S+) :(.+)$/);
       if (tagMatch) {
         const tagsStr = tagMatch[1];
         const userStr = tagMatch[2];
-        const msg = tagMatch[3];
+        const channelStr = tagMatch[3];
+        const msg = tagMatch[4];
 
         const tags: Record<string, string> = {};
         tagsStr.split(";").forEach((tag) => {
@@ -107,26 +117,48 @@ export class TwitchClient {
           tags[k] = v;
         });
 
+        const isMod = tags["mod"] === "1";
+        const isBroadcaster =
+          tags["badges"]?.includes("broadcaster") ||
+          userStr.toLowerCase() === this.channel.toLowerCase();
+
         const twitchMsg: TwitchMessage = {
           username: tags["display-name"] || userStr,
           message: msg,
           color: tags["color"] || "#9146FF",
           timestamp: Date.now(),
+          isMod,
+          isBroadcaster,
         };
+
+        // Check for commands (only for mods/broadcaster)
+        if ((isMod || isBroadcaster) && msg.trim().startsWith("!")) {
+          const command = msg.trim().split(/\s+/)[0].toLowerCase();
+          this.commandHandlers.forEach((h) => h(command, twitchMsg));
+        }
 
         this.handlers.forEach((h) => h(twitchMsg));
         return;
       }
 
-      // No-tag line
-      const simpleMatch = line.match(/:(\S+)!.*PRIVMSG #\S+ :(.+)$/);
+      // No-tag fallback
+      const simpleMatch = line.match(/:(\S+)!.*PRIVMSG #(\S+) :(.+)$/);
       if (simpleMatch) {
         const twitchMsg: TwitchMessage = {
           username: simpleMatch[1],
-          message: simpleMatch[2],
+          message: simpleMatch[3],
           color: "#9146FF",
           timestamp: Date.now(),
+          isMod: false,
+          isBroadcaster:
+            simpleMatch[1].toLowerCase() === this.channel.toLowerCase(),
         };
+
+        if (twitchMsg.isBroadcaster && simpleMatch[3].trim().startsWith("!")) {
+          const command = simpleMatch[3].trim().split(/\s+/)[0].toLowerCase();
+          this.commandHandlers.forEach((h) => h(command, twitchMsg));
+        }
+
         this.handlers.forEach((h) => h(twitchMsg));
       }
     }
