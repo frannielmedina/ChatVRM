@@ -43,6 +43,10 @@ type Props = {
   onChangeBackgroundConfig: (config: BackgroundConfig) => void;
   onChangeCaptionStyle: (style: CaptionStyle) => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
+  /** Called to persist settings immediately (used before closing the popup) */
+  onSaveSettings: () => void;
+  /** Called when user picks a VRM file — saves it to localStorage too */
+  onVrmFileLoad?: (url: string) => void;
 };
 
 export const Menu = ({
@@ -74,6 +78,8 @@ export const Menu = ({
   onChangeBackgroundConfig,
   onChangeCaptionStyle,
   onLoadSettings,
+  onSaveSettings,
+  onVrmFileLoad,
 }: Props) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showChatLog, setShowChatLog] = useState(false);
@@ -98,15 +104,28 @@ export const Menu = ({
       if (ext === "vrm") {
         const blob = new Blob([file], { type: "application/octet-stream" });
         const url = window.URL.createObjectURL(blob);
-        viewer.loadVrm(url);
+        if (onVrmFileLoad) {
+          onVrmFileLoad(url);
+        } else {
+          viewer.loadVrm(url);
+        }
       }
       event.target.value = "";
     },
-    [viewer]
+    [viewer, onVrmFileLoad]
   );
 
-  // Keep UI visible while settings panel is open
-  const shouldShowUI = uiVisible || showSettings;
+  const handleSaveAndClose = useCallback(() => {
+    onSaveSettings();
+    setShowSettings(false);
+  }, [onSaveSettings]);
+
+  // Detect mobile for settings behavior
+  const isMobile =
+    typeof window !== "undefined" && window.innerWidth < 640;
+
+  // Keep UI visible while settings panel is open (only on mobile where it's inline)
+  const shouldShowUI = uiVisible || (showSettings && isMobile);
 
   return (
     <>
@@ -123,7 +142,6 @@ export const Menu = ({
             isProcessing={false}
             onClick={() => setShowSettings(true)}
           />
-          {/* Chat Log — now opens dialog */}
           <IconButton
             iconName={showChatLog ? "24/CommentFill" : "24/CommentOutline"}
             label="Chat Log"
@@ -150,7 +168,7 @@ export const Menu = ({
         </div>
       </div>
 
-      {/* Chat Log Dialog (modal) */}
+      {/* Chat Log Dialog */}
       {showChatLog && (
         <ChatLogDialog
           messages={chatLog}
@@ -170,7 +188,9 @@ export const Menu = ({
           screenShareConfig={screenShareConfig}
           backgroundConfig={backgroundConfig}
           captionStyle={captionStyle}
+          isMobile={isMobile}
           onClickClose={() => setShowSettings(false)}
+          onSaveAndClose={handleSaveAndClose}
           onChangeAiConfig={onChangeAiConfig}
           onChangeSystemPrompt={handleChangeSystemPrompt}
           onChangeChatLog={onChangeChatLog}
@@ -191,7 +211,7 @@ export const Menu = ({
         />
       )}
 
-      {/* Caption — shown when not in dialog and there is a message */}
+      {/* Caption */}
       {!showChatLog && assistantMessage && (
         <AssistantText message={assistantMessage} captionStyle={captionStyle} />
       )}

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { IconButton } from "./iconButton";
 import { TextButton } from "./textButton";
 import { Message } from "@/features/messages/messages";
@@ -29,7 +29,9 @@ type Props = {
   screenShareConfig: ScreenShareConfig;
   backgroundConfig: BackgroundConfig;
   captionStyle: CaptionStyle;
+  isMobile: boolean;
   onClickClose: () => void;
+  onSaveAndClose: () => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
   onChangeSystemPrompt: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onChangeChatLog: (index: number, text: string) => void;
@@ -49,162 +51,363 @@ type Props = {
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
 };
 
-export const Settings = ({
-  aiConfig,
-  chatLog,
-  systemPrompt,
-  ttsConfig,
-  koeiroParam,
-  twitchConfig,
-  twitchConnected,
-  screenShareConfig,
-  backgroundConfig,
-  captionStyle,
-  onClickClose,
-  onChangeSystemPrompt,
-  onChangeAiConfig,
-  onChangeChatLog,
-  onClickOpenVrmFile,
-  onClickResetChatLog,
-  onClickResetSystemPrompt,
-  onChangeTTSConfig,
-  onChangeKoeiroParam,
-  onChangeTwitchConfig,
-  onTwitchConnect,
-  onTwitchDisconnect,
-  onChangeScreenShareConfig,
-  onScreenShareStart,
-  onScreenShareStop,
-  onChangeBackgroundConfig,
-  onChangeCaptionStyle,
-  onLoadSettings,
-}: Props) => {
-  return (
-    <div className="absolute z-40 w-full h-full bg-white/80 backdrop-blur">
-      <div className="absolute m-24">
-        <IconButton
-          iconName="24/Close"
-          isProcessing={false}
-          onClick={onClickClose}
-        />
+// ── Save confirmation dialog ──────────────────────────────────────────────────
+const SaveConfirmDialog = ({
+  onSave,
+  onDiscard,
+  onCancel,
+}: {
+  onSave: () => void;
+  onDiscard: () => void;
+  onCancel: () => void;
+}) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div className="bg-white rounded-16 shadow-2xl max-w-sm w-full mx-16 p-24">
+      <div className="typography-20 font-bold mb-8">Save settings?</div>
+      <div className="text-sm text-text-primary/70 mb-20">
+        Do you want to save your settings before closing?
       </div>
-      <div className="max-h-full overflow-auto">
-        <div className="text-text1 max-w-3xl mx-auto px-24 py-64">
-          <div className="my-24 typography-32 font-bold">Settings</div>
+      <div className="flex gap-8 justify-end flex-wrap">
+        <button
+          onClick={onCancel}
+          className="px-16 py-8 rounded-oval border-2 border-surface3 bg-surface1 hover:bg-surface3 font-bold text-sm"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onDiscard}
+          className="px-16 py-8 rounded-oval border-2 border-surface3 bg-surface1 hover:bg-surface3 font-bold text-sm text-secondary"
+        >
+          Don't Save
+        </button>
+        <button
+          onClick={onSave}
+          className="px-16 py-8 rounded-oval bg-primary hover:bg-primary-hover text-white font-bold text-sm"
+        >
+          Save & Close
+        </button>
+      </div>
+    </div>
+  </div>
+);
 
-          {/* ── Save / Load ──────────────────────────────────────────────── */}
-          <SettingsPorter
-            systemPrompt={systemPrompt}
-            aiConfig={aiConfig}
-            ttsConfig={ttsConfig}
-            koeiroParam={koeiroParam}
-            backgroundConfig={backgroundConfig}
-            onLoadSettings={onLoadSettings}
+// ── Settings content (shared between popup and inline) ────────────────────────
+export const SettingsContent = (props: Props) => {
+  const {
+    aiConfig,
+    chatLog,
+    systemPrompt,
+    ttsConfig,
+    koeiroParam,
+    twitchConfig,
+    twitchConnected,
+    screenShareConfig,
+    backgroundConfig,
+    captionStyle,
+    onClickClose,
+    onSaveAndClose,
+    onChangeSystemPrompt,
+    onChangeAiConfig,
+    onChangeChatLog,
+    onClickOpenVrmFile,
+    onClickResetChatLog,
+    onClickResetSystemPrompt,
+    onChangeTTSConfig,
+    onChangeKoeiroParam,
+    onChangeTwitchConfig,
+    onTwitchConnect,
+    onTwitchDisconnect,
+    onChangeScreenShareConfig,
+    onScreenShareStart,
+    onScreenShareStop,
+    onChangeBackgroundConfig,
+    onChangeCaptionStyle,
+    onLoadSettings,
+    isMobile,
+  } = props;
+
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+
+  const handleClose = useCallback(() => {
+    if (isMobile) {
+      // Mobile: just close without save dialog
+      onClickClose();
+    } else {
+      // Desktop: show save confirmation
+      setShowSaveConfirm(true);
+    }
+  }, [isMobile, onClickClose]);
+
+  return (
+    <>
+      {showSaveConfirm && (
+        <SaveConfirmDialog
+          onSave={() => {
+            setShowSaveConfirm(false);
+            onSaveAndClose();
+          }}
+          onDiscard={() => {
+            setShowSaveConfirm(false);
+            onClickClose();
+          }}
+          onCancel={() => setShowSaveConfirm(false)}
+        />
+      )}
+
+      <div className={isMobile ? "absolute z-40 w-full h-full bg-white/80 backdrop-blur" : "w-full h-full bg-white"}>
+        <div className="absolute m-24 z-10">
+          <IconButton
+            iconName="24/Close"
+            isProcessing={false}
+            onClick={handleClose}
           />
+        </div>
+        <div className="max-h-full overflow-auto h-full">
+          <div className="text-text1 max-w-3xl mx-auto px-24 py-64">
+            <div className="my-24 typography-32 font-bold">Settings</div>
 
-          <div className="border-t border-surface3 my-32" />
-
-          {/* ── AI Provider ─────────────────────────────────────────────── */}
-          <AIProviderSettings
-            config={aiConfig}
-            onChangeConfig={onChangeAiConfig}
-          />
-
-          {/* ── Background ──────────────────────────────────────────────── */}
-          <BackgroundSettings
-            config={backgroundConfig}
-            onChangeConfig={onChangeBackgroundConfig}
-          />
-
-          {/* ── Caption / Subtitles ─────────────────────────────────────── */}
-          <CaptionSettings
-            style={captionStyle}
-            onChangeStyle={onChangeCaptionStyle}
-          />
-
-          {/* ── VRM model ───────────────────────────────────────────────── */}
-          <div className="my-40">
-            <div className="my-16 typography-20 font-bold">Character Model</div>
-            <div className="my-8">
-              <TextButton onClick={onClickOpenVrmFile}>Open VRM File</TextButton>
-            </div>
-          </div>
-
-          {/* ── System prompt ───────────────────────────────────────────── */}
-          <div className="my-40">
-            <div className="my-8">
-              <div className="my-16 typography-20 font-bold">
-                Character Prompt (System Prompt)
-              </div>
-              <TextButton onClick={onClickResetSystemPrompt}>
-                Reset to Default
-              </TextButton>
-            </div>
-            <textarea
-              value={systemPrompt}
-              onChange={onChangeSystemPrompt}
-              className="px-16 py-8 bg-surface1 hover:bg-surface1-hover h-168 rounded-8 w-full mt-8"
+            <SettingsPorter
+              systemPrompt={systemPrompt}
+              aiConfig={aiConfig}
+              ttsConfig={ttsConfig}
+              koeiroParam={koeiroParam}
+              backgroundConfig={backgroundConfig}
+              onLoadSettings={onLoadSettings}
             />
-          </div>
 
-          {/* ── TTS ─────────────────────────────────────────────────────── */}
-          <TTSSettings
-            ttsConfig={ttsConfig}
-            onChangeTTSConfig={onChangeTTSConfig}
-            koeiroParam={koeiroParam}
-            onChangeKoeiroParam={onChangeKoeiroParam}
-          />
+            <div className="border-t border-surface3 my-32" />
 
-          {/* ── Twitch ──────────────────────────────────────────────────── */}
-          <TwitchSettings
-            config={twitchConfig}
-            isConnected={twitchConnected}
-            onChangeConfig={onChangeTwitchConfig}
-            onConnect={onTwitchConnect}
-            onDisconnect={onTwitchDisconnect}
-          />
+            <AIProviderSettings
+              config={aiConfig}
+              onChangeConfig={onChangeAiConfig}
+            />
 
-          {/* ── Screen Share ────────────────────────────────────────────── */}
-          <ScreenShareSettings
-            config={screenShareConfig}
-            onChangeConfig={onChangeScreenShareConfig}
-            onStart={onScreenShareStart}
-            onStop={onScreenShareStop}
-          />
+            <BackgroundSettings
+              config={backgroundConfig}
+              onChangeConfig={onChangeBackgroundConfig}
+            />
 
-          {/* ── Chat log ────────────────────────────────────────────────── */}
-          {chatLog.length > 0 && (
+            <CaptionSettings
+              style={captionStyle}
+              onChangeStyle={onChangeCaptionStyle}
+            />
+
+            <div className="my-40">
+              <div className="my-16 typography-20 font-bold">Character Model</div>
+              <div className="my-8">
+                <TextButton onClick={onClickOpenVrmFile}>Open VRM File</TextButton>
+              </div>
+            </div>
+
             <div className="my-40">
               <div className="my-8">
                 <div className="my-16 typography-20 font-bold">
-                  Conversation History
+                  Character Prompt (System Prompt)
                 </div>
-                <TextButton onClick={onClickResetChatLog}>
-                  Clear History
+                <TextButton onClick={onClickResetSystemPrompt}>
+                  Reset to Default
                 </TextButton>
               </div>
-              <div className="my-8">
-                {chatLog.map((value, index) => (
-                  <div
-                    key={index}
-                    className="my-8 grid grid-flow-col grid-cols-[min-content_1fr] gap-x-fixed"
-                  >
-                    <div className="w-[80px] py-8">
-                      {value.role === "assistant" ? "Character" : "You"}
-                    </div>
-                    <input
-                      className="bg-surface1 hover:bg-surface1-hover rounded-8 w-full px-16 py-8"
-                      type="text"
-                      value={value.content}
-                      onChange={(e) => onChangeChatLog(index, e.target.value)}
-                    />
-                  </div>
-                ))}
-              </div>
+              <textarea
+                value={systemPrompt}
+                onChange={onChangeSystemPrompt}
+                className="px-16 py-8 bg-surface1 hover:bg-surface1-hover h-168 rounded-8 w-full mt-8"
+              />
             </div>
-          )}
+
+            <TTSSettings
+              ttsConfig={ttsConfig}
+              onChangeTTSConfig={onChangeTTSConfig}
+              koeiroParam={koeiroParam}
+              onChangeKoeiroParam={onChangeKoeiroParam}
+            />
+
+            <TwitchSettings
+              config={twitchConfig}
+              isConnected={twitchConnected}
+              onChangeConfig={onChangeTwitchConfig}
+              onConnect={onTwitchConnect}
+              onDisconnect={onTwitchDisconnect}
+            />
+
+            <ScreenShareSettings
+              config={screenShareConfig}
+              onChangeConfig={onChangeScreenShareConfig}
+              onStart={onScreenShareStart}
+              onStop={onScreenShareStop}
+            />
+
+            {chatLog.length > 0 && (
+              <div className="my-40">
+                <div className="my-8">
+                  <div className="my-16 typography-20 font-bold">
+                    Conversation History
+                  </div>
+                  <TextButton onClick={onClickResetChatLog}>
+                    Clear History
+                  </TextButton>
+                </div>
+                <div className="my-8">
+                  {chatLog.map((value, index) => (
+                    <div
+                      key={index}
+                      className="my-8 grid grid-flow-col grid-cols-[min-content_1fr] gap-x-fixed"
+                    >
+                      <div className="w-[80px] py-8">
+                        {value.role === "assistant" ? "Character" : "You"}
+                      </div>
+                      <input
+                        className="bg-surface1 hover:bg-surface1-hover rounded-8 w-full px-16 py-8"
+                        type="text"
+                        value={value.content}
+                        onChange={(e) => onChangeChatLog(index, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+    </>
+  );
+};
+
+// ── Desktop popup window settings ─────────────────────────────────────────────
+export const SettingsPopup = (props: Props) => {
+  const popupRef = useRef<Window | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [popupReady, setPopupReady] = useState(false);
+
+  useEffect(() => {
+    // Open popup window
+    const popup = window.open(
+      "",
+      "chatvrm-settings",
+      `width=760,height=700,resizable=yes,scrollbars=yes,menubar=no,toolbar=no,location=no,status=no`
+    );
+
+    if (!popup) {
+      // Popup blocked — fall back to inline
+      return;
+    }
+
+    popupRef.current = popup;
+
+    // Copy parent styles into popup
+    popup.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>ChatVRM — Settings</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Montserrat', 'M PLUS 2', sans-serif; overflow: hidden; }
+    #settings-root { width: 100vw; height: 100vh; overflow: auto; }
+  </style>
+</head>
+<body>
+  <div id="settings-root"></div>
+</body>
+</html>`);
+    popup.document.close();
+
+    // Copy all stylesheets from parent
+    Array.from(document.styleSheets).forEach((sheet) => {
+      try {
+        if (sheet.href) {
+          const link = popup.document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = sheet.href;
+          popup.document.head.appendChild(link);
+        } else if (sheet.ownerNode) {
+          const clone = sheet.ownerNode.cloneNode(true) as HTMLElement;
+          popup.document.head.appendChild(clone);
+        }
+      } catch (_) {}
+    });
+
+    // Handle popup close button (X)
+    popup.addEventListener("beforeunload", () => {
+      // This fires when the user clicks X on the popup window
+      // The save dialog is handled via the close button inside the content,
+      // but if the OS window X is clicked we just close without dialog
+      // (browser limitation: can't reliably intercept native window close)
+      props.onClickClose();
+    });
+
+    setPopupReady(true);
+
+    return () => {
+      if (popupRef.current && !popupRef.current.closed) {
+        popupRef.current.removeEventListener("beforeunload", () => {});
+        popupRef.current.close();
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Move the settings DOM into the popup window
+  useEffect(() => {
+    if (!popupReady || !containerRef.current || !popupRef.current) return;
+    const root = popupRef.current.document.getElementById("settings-root");
+    if (root && containerRef.current) {
+      root.appendChild(containerRef.current);
+    }
+  }, [popupReady]);
+
+  return (
+    <div ref={containerRef} style={{ width: "100%", height: "100%" }}>
+      <SettingsContent {...props} isMobile={false} />
+    </div>
+  );
+};
+
+// ── Main Settings wrapper — detects mobile vs desktop ─────────────────────────
+export const Settings = (props: Props) => {
+  // Detect mobile: use the same breakpoint as Tailwind sm (640px)
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+
+  if (isMobile) {
+    // Mobile: inline overlay (original behavior)
+    return (
+      <div className="absolute z-40 w-full h-full bg-white/80 backdrop-blur">
+        <SettingsContent {...props} isMobile={true} />
+      </div>
+    );
+  }
+
+  // Desktop: try popup first; SettingsContent fallback is handled inside SettingsPopup
+  return <SettingsDesktopWrapper {...props} />;
+};
+
+// Separate wrapper to handle popup vs fallback
+const SettingsDesktopWrapper = (props: Props) => {
+  const [popupBlocked, setPopupBlocked] = useState(false);
+
+  // Try to detect if popup was blocked
+  useEffect(() => {
+    const test = window.open("", "_blank", "width=1,height=1");
+    if (!test || test.closed) {
+      setPopupBlocked(true);
+    } else {
+      test.close();
+    }
+  }, []);
+
+  if (popupBlocked) {
+    // Fallback: inline overlay
+    return (
+      <div className="absolute z-40 w-full h-full bg-white/80 backdrop-blur">
+        <SettingsContent {...props} isMobile={false} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute z-40 w-full h-full bg-white/80 backdrop-blur">
+      <SettingsContent {...props} isMobile={false} />
     </div>
   );
 };
