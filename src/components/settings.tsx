@@ -78,13 +78,13 @@ const SaveConfirmDialog = ({
           onClick={onDiscard}
           className="px-16 py-8 rounded-oval border-2 border-surface3 bg-surface1 hover:bg-surface3 font-bold text-sm text-secondary"
         >
-          Don't Save
+          Don&apos;t Save
         </button>
         <button
           onClick={onSave}
           className="px-16 py-8 rounded-oval bg-primary hover:bg-primary-hover text-white font-bold text-sm"
         >
-          Save & Close
+          Save &amp; Close
         </button>
       </div>
     </div>
@@ -130,10 +130,8 @@ export const SettingsContent = (props: Props) => {
 
   const handleClose = useCallback(() => {
     if (isMobile) {
-      // Mobile: just close without save dialog
       onClickClose();
     } else {
-      // Desktop: show save confirmation
       setShowSaveConfirm(true);
     }
   }, [isMobile, onClickClose]);
@@ -281,7 +279,6 @@ export const SettingsPopup = (props: Props) => {
   const [popupReady, setPopupReady] = useState(false);
 
   useEffect(() => {
-    // Open popup window
     const popup = window.open(
       "",
       "chatvrm-settings",
@@ -289,13 +286,11 @@ export const SettingsPopup = (props: Props) => {
     );
 
     if (!popup) {
-      // Popup blocked — fall back to inline
       return;
     }
 
     popupRef.current = popup;
 
-    // Copy parent styles into popup
     popup.document.write(`<!DOCTYPE html>
 <html>
 <head>
@@ -313,7 +308,6 @@ export const SettingsPopup = (props: Props) => {
 </html>`);
     popup.document.close();
 
-    // Copy all stylesheets from parent
     Array.from(document.styleSheets).forEach((sheet) => {
       try {
         if (sheet.href) {
@@ -328,12 +322,7 @@ export const SettingsPopup = (props: Props) => {
       } catch (_) {}
     });
 
-    // Handle popup close button (X)
     popup.addEventListener("beforeunload", () => {
-      // This fires when the user clicks X on the popup window
-      // The save dialog is handled via the close button inside the content,
-      // but if the OS window X is clicked we just close without dialog
-      // (browser limitation: can't reliably intercept native window close)
       props.onClickClose();
     });
 
@@ -348,7 +337,6 @@ export const SettingsPopup = (props: Props) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Move the settings DOM into the popup window
   useEffect(() => {
     if (!popupReady || !containerRef.current || !popupRef.current) return;
     const root = popupRef.current.document.getElementById("settings-root");
@@ -364,13 +352,11 @@ export const SettingsPopup = (props: Props) => {
   );
 };
 
-// ── Main Settings wrapper — detects mobile vs desktop ─────────────────────────
+// ── Main Settings wrapper ─────────────────────────────────────────────────────
 export const Settings = (props: Props) => {
-  // Detect mobile: use the same breakpoint as Tailwind sm (640px)
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
   if (isMobile) {
-    // Mobile: inline overlay (original behavior)
     return (
       <div className="absolute z-40 w-full h-full bg-white/80 backdrop-blur">
         <SettingsContent {...props} isMobile={true} />
@@ -378,15 +364,12 @@ export const Settings = (props: Props) => {
     );
   }
 
-  // Desktop: try popup first; SettingsContent fallback is handled inside SettingsPopup
   return <SettingsDesktopWrapper {...props} />;
 };
 
-// Separate wrapper to handle popup vs fallback
 const SettingsDesktopWrapper = (props: Props) => {
   const [popupBlocked, setPopupBlocked] = useState(false);
 
-  // Try to detect if popup was blocked
   useEffect(() => {
     const test = window.open("", "_blank", "width=1,height=1");
     if (!test || test.closed) {
@@ -397,7 +380,6 @@ const SettingsDesktopWrapper = (props: Props) => {
   }, []);
 
   if (popupBlocked) {
-    // Fallback: inline overlay
     return (
       <div className="absolute z-40 w-full h-full bg-white/80 backdrop-blur">
         <SettingsContent {...props} isMobile={false} />
