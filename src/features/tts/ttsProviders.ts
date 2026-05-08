@@ -1,9 +1,9 @@
 import { TalkStyle } from "../messages/messages";
-import { TTSConfig } from "./ttsConfig";
+import { TTSConfig, ElevenLabsModel } from "./ttsConfig";
 import { reduceTalkStyle } from "@/utils/reduceTalkStyle";
 import { koeiromapFreeV1 } from "../koeiromap/koeiromap";
 
-// ── Koeiromap (original) ─────────────────────────────────────────────────────
+// ── Koeiromap ─────────────────────────────────────────────────────────────────
 export async function synthesizeKoeiromap(
   message: string,
   speakerX: number,
@@ -30,12 +30,60 @@ export async function synthesizeKoeiromap(
   return audioRes.arrayBuffer();
 }
 
-// ── ElevenLabs ───────────────────────────────────────────────────────────────
+// ── ElevenLabs key rotation state ────────────────────────────────────────────
+// Tracks which key index to use next, and which keys have failed this session.
+let _elevenLabsKeyIndex = 0;
+const _elevenLabsFailedKeys = new Set<string>();
+
+/**
+ * Returns the list of non-empty ElevenLabs keys from the config,
+ * deduplicating so the primary key (elevenLabsKey) and the rotation pool
+ * (elevenLabsKeys) don't double-count.
+ */
+function getElevenLabsKeyPool(config: TTSConfig): string[] {
+  const pool: string[] = [];
+  const seen = new Set<string>();
+
+  // elevenLabsKeys[0] is kept in sync with elevenLabsKey in the settings UI,
+  // so just iterate the array.
+  const keys = config.elevenLabsKeys ?? [];
+  // Fallback: if rotation pool is empty/not set, use the single key field.
+  if (keys.filter(Boolean).length === 0 && config.elevenLabsKey) {
+    return [config.elevenLabsKey];
+  }
+
+  for (const k of keys) {
+    const trimmed = k?.trim();
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed);
+      pool.push(trimmed);
+    }
+  }
+  return pool;
+}
+
+/**
+ * Credit-saving optimisation: trim leading/trailing whitespace and collapse
+ * multiple consecutive spaces/newlines into one space. ElevenLabs charges per
+ * character, so removing redundant whitespace reduces the character count
+ * without changing how the speech sounds.
+ */
+function optimizeTextForCredits(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+/g, " ")           // collapse whitespace runs
+    .replace(/([.!?])\s+/g, "$1 "); // normalise post-punctuation spacing
+}
+
+// ── ElevenLabs TTS with key rotation ─────────────────────────────────────────
 export async function synthesizeElevenLabs(
   message: string,
   voiceId: string,
-  apiKey: string
+  apiKey: string,
+  model: ElevenLabsModel = "eleven_flash_v2_5"
 ): Promise<ArrayBuffer> {
+  const optimized = optimizeTextForCredits(message);
+
   const res = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
     {
@@ -45,17 +93,88 @@ export async function synthesizeElevenLabs(
         "xi-api-key": apiKey,
       },
       body: JSON.stringify({
-        text: message,
-        model_id: "eleven_multilingual_v2",
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        text: optimized,
+        model_id: model,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          // style is not needed for flash/turbo — saves processing time
+          ...(model === "eleven_multilingual_v2" ? { style: 0.3 } : {}),
+        },
       }),
     }
   );
+
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`ElevenLabs error: ${res.status} — ${err}`);
   }
   return res.arrayBuffer();
+}
+
+/**
+ * Synthesizes with automatic key rotation.
+ * Tries each key in the pool in round-robin order.
+ * If a key fails (quota exceeded / 401 / 429), it marks it as failed
+ * and tries the next one.
+ * Resets the failed-keys set when all keys have been exhausted so it can
+ * retry after the accounts refill.
+ */
+export async function synthesizeElevenLabsWithRotation(
+  message: string,
+  config: TTSConfig
+): Promise<ArrayBuffer> {
+  const voiceId = config.elevenLabsVoiceId || "21m00Tcm4TlvDq8ikWAM";
+  const model = config.elevenLabsModel ?? "eleven_flash_v2_5";
+  const pool = getElevenLabsKeyPool(config);
+
+  if (pool.length === 0) {
+    throw new Error("No ElevenLabs API keys configured.");
+  }
+
+  // Filter out keys already known to be exhausted this session
+  const available = pool.filter((k) => !_elevenLabsFailedKeys.has(k));
+
+  // If all keys failed this session, reset and try again from scratch
+  if (available.length === 0) {
+    console.warn("[ElevenLabs] All keys exhausted — resetting rotation pool.");
+    _elevenLabsFailedKeys.clear();
+    available.push(...pool);
+  }
+
+  // Round-robin: pick the next available key
+  _elevenLabsKeyIndex = _elevenLabsKeyIndex % available.length;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < available.length; attempt++) {
+    const keyIndex = (_elevenLabsKeyIndex + attempt) % available.length;
+    const key = available[keyIndex];
+
+    try {
+      const result = await synthesizeElevenLabs(message, voiceId, key, model);
+      // Success — advance the index for next call (round-robin)
+      _elevenLabsKeyIndex = (keyIndex + 1) % available.length;
+      return result;
+    } catch (err: any) {
+      const statusMatch = err.message?.match(/error: (\d+)/);
+      const status = statusMatch ? parseInt(statusMatch[1]) : 0;
+
+      // Mark the key as failed on quota (402), auth (401), or rate limit (429)
+      if (status === 401 || status === 402 || status === 429) {
+        console.warn(
+          `[ElevenLabs] Key ending in …${key.slice(-6)} failed (${status}). Rotating.`
+        );
+        _elevenLabsFailedKeys.add(key);
+        lastError = err;
+        continue;
+      }
+
+      // Other errors (5xx, network) — don't blacklist the key, just throw
+      throw err;
+    }
+  }
+
+  throw lastError ?? new Error("All ElevenLabs keys failed.");
 }
 
 // ── Qwen3-TTS Remote ─────────────────────────────────────────────────────────
@@ -113,19 +232,11 @@ export async function synthesizeWithProvider(
         config.koeiromapKey || ""
       );
     case "elevenlabs":
-      return synthesizeElevenLabs(
-        message,
-        config.elevenLabsVoiceId || "21m00Tcm4TlvDq8ikWAM",
-        config.elevenLabsKey || ""
-      );
+      return synthesizeElevenLabsWithRotation(message, config);
     case "qwen-remote":
       if (!config.qwenRemoteUrl)
         throw new Error("Qwen Remote URL not configured");
-      return synthesizeQwenRemote(
-        message,
-        config.qwenRemoteUrl,
-        config.qwenSpeaker
-      );
+      return synthesizeQwenRemote(message, config.qwenRemoteUrl, config.qwenSpeaker);
     case "gpt-sovits":
       if (!config.gptsovitsRemoteUrl)
         throw new Error("GPT-SoVITS Remote URL not configured");
