@@ -44,6 +44,8 @@ import {
 import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 import { useAutoHide } from "@/hooks/useAutoHide";
 import { CaptionStyle, DEFAULT_CAPTION_STYLE } from "@/components/captionSettings";
+import { VisionConfig, DEFAULT_VISION_CONFIG } from "@/features/vision/visionConfig";
+import { useVision } from "@/features/vision/useVision";
 import { buildUrl } from "@/utils/buildUrl";
 
 // VRM model localStorage key
@@ -68,6 +70,7 @@ export default function Home() {
     DEFAULT_BACKGROUND_CONFIG
   );
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_CAPTION_STYLE);
+  const [visionConfig, setVisionConfig] = useState<VisionConfig>(DEFAULT_VISION_CONFIG);
 
   // Twitch
   const [twitchConfig, setTwitchConfig] = useState<TwitchConfig>(DEFAULT_TWITCH_CONFIG);
@@ -102,6 +105,8 @@ export default function Home() {
           setBackgroundConfig({ ...DEFAULT_BACKGROUND_CONFIG, ...params.backgroundConfig });
         if (params.captionStyle)
           setCaptionStyle({ ...DEFAULT_CAPTION_STYLE, ...params.captionStyle });
+        if (params.visionConfig)
+          setVisionConfig({ ...DEFAULT_VISION_CONFIG, ...params.visionConfig });
       } catch (_) {}
     }
   }, []);
@@ -119,10 +124,11 @@ export default function Home() {
           twitchConfig,
           backgroundConfig,
           captionStyle,
+          visionConfig,
         })
       )
     );
-  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle]);
+  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle, visionConfig]);
 
   // ── VRM model persistence ──────────────────────────────────────────────────
   const [viewerReady, setViewerReady] = useState(false);
@@ -173,22 +179,21 @@ export default function Home() {
         twitchConfig,
         backgroundConfig,
         captionStyle,
+        visionConfig,
       })
     );
-  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle]);
+  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle, visionConfig]);
 
   // ── !reset command handler ─────────────────────────────────────────────────
   const handleResetCommand = useCallback(() => {
     setChatLog([]);
     setAssistantMessage("");
-
     const savedUrl = localStorage.getItem(VRM_URL_KEY);
     if (savedUrl) {
       viewer.loadVrm(savedUrl);
     } else {
       viewer.loadVrm(buildUrl("/AvatarSample_B.vrm"));
     }
-
     console.log("[!reset] Chat cleared and VRM reloaded.");
   }, [viewer]);
 
@@ -249,15 +254,11 @@ export default function Home() {
       ];
       setChatLog(messageLog);
 
-      // ── Build messages with system prompt ──────────────────────────────
       const allMessages: Message[] = [
         { role: "system", content: systemPrompt },
         ...messageLog,
       ];
 
-      // ── TRUNCATE HISTORY to avoid 413 / 429 errors ─────────────────────
-      // Keeps the system prompt + last N conversation pairs.
-      // For Groq free tier (6k TPM), this is the most important protection.
       const messages = truncateHistory(allMessages, aiConfig.provider);
 
       const stream = await getChatResponseStream(messages, aiConfig).catch((e) => {
@@ -343,6 +344,30 @@ export default function Home() {
   useEffect(() => {
     sendChatRef.current = handleSendChat;
   }, [handleSendChat]);
+
+  // ── Vision ─────────────────────────────────────────────────────────────────
+  // Resolve the effective Groq key for vision (falls back to main AI key)
+  const effectiveVisionConfig: VisionConfig = {
+    ...visionConfig,
+    groqApiKey:
+      visionConfig.groqApiKey ||
+      (aiConfig.provider === "groq" ? aiConfig.apiKey ?? "" : ""),
+  };
+
+  const {
+    status: visionStatus,
+    lastDescription: visionLastDescription,
+    lastCaptureTime: visionLastCaptureTime,
+    secondsUntilNext: visionSecondsUntilNext,
+    captureNow: visionCaptureNow,
+    error: visionError,
+  } = useVision(
+    effectiveVisionConfig,
+    screenStream,
+    screenShareConfig.mode,
+    systemPrompt,
+    (description) => sendChatRef.current(description)
+  );
 
   // ── Twitch ─────────────────────────────────────────────────────────────────
   const handleTwitchConnect = useCallback(() => {
@@ -468,6 +493,12 @@ export default function Home() {
         screenShareConfig={screenShareConfig}
         backgroundConfig={backgroundConfig}
         captionStyle={captionStyle}
+        visionConfig={visionConfig}
+        visionStatus={visionStatus}
+        visionLastDescription={visionLastDescription}
+        visionLastCaptureTime={visionLastCaptureTime}
+        visionSecondsUntilNext={visionSecondsUntilNext}
+        visionError={visionError}
         uiVisible={uiVisible}
         onChangeAiConfig={setAiConfig}
         onChangeSystemPrompt={setSystemPrompt}
@@ -484,6 +515,8 @@ export default function Home() {
         onScreenShareStop={handleScreenShareStop}
         onChangeBackgroundConfig={setBackgroundConfig}
         onChangeCaptionStyle={setCaptionStyle}
+        onChangeVisionConfig={setVisionConfig}
+        onVisionCaptureNow={visionCaptureNow}
         onLoadSettings={handleLoadSettings}
         onSaveSettings={saveSettingsNow}
         onVrmFileLoad={handleVrmFileLoad}
