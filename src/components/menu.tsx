@@ -13,6 +13,8 @@ import { BackgroundConfig } from "@/features/background/backgroundConfig";
 import { KoeiroParam } from "@/features/constants/koeiroParam";
 import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 import { CaptionStyle } from "./captionSettings";
+import { VisionConfig } from "@/features/vision/visionConfig";
+import { VisionStatus } from "@/features/vision/useVision";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -26,6 +28,12 @@ type Props = {
   screenShareConfig: ScreenShareConfig;
   backgroundConfig: BackgroundConfig;
   captionStyle: CaptionStyle;
+  visionConfig: VisionConfig;
+  visionStatus: VisionStatus;
+  visionLastDescription: string;
+  visionLastCaptureTime: Date | null;
+  visionSecondsUntilNext: number;
+  visionError: string | null;
   uiVisible: boolean;
   onChangeSystemPrompt: (systemPrompt: string) => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
@@ -42,10 +50,10 @@ type Props = {
   onScreenShareStop: () => void;
   onChangeBackgroundConfig: (config: BackgroundConfig) => void;
   onChangeCaptionStyle: (style: CaptionStyle) => void;
+  onChangeVisionConfig: (config: VisionConfig) => void;
+  onVisionCaptureNow: () => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
-  /** Called to persist settings immediately (used before closing the popup) */
   onSaveSettings: () => void;
-  /** Called when user picks a VRM file — saves it to localStorage too */
   onVrmFileLoad?: (url: string) => void;
 };
 
@@ -61,6 +69,12 @@ export const Menu = ({
   screenShareConfig,
   backgroundConfig,
   captionStyle,
+  visionConfig,
+  visionStatus,
+  visionLastDescription,
+  visionLastCaptureTime,
+  visionSecondsUntilNext,
+  visionError,
   uiVisible,
   onChangeSystemPrompt,
   onChangeAiConfig,
@@ -77,6 +91,8 @@ export const Menu = ({
   onScreenShareStop,
   onChangeBackgroundConfig,
   onChangeCaptionStyle,
+  onChangeVisionConfig,
+  onVisionCaptureNow,
   onLoadSettings,
   onSaveSettings,
   onVrmFileLoad,
@@ -120,16 +136,15 @@ export const Menu = ({
     setShowSettings(false);
   }, [onSaveSettings]);
 
-  // Detect mobile for settings behavior
-  const isMobile =
-    typeof window !== "undefined" && window.innerWidth < 640;
-
-  // Keep UI visible while settings panel is open (only on mobile where it's inline)
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
   const shouldShowUI = uiVisible || (showSettings && isMobile);
+
+  // Vision status badge in the toolbar
+  const showVisionBadge = visionConfig.enabled && screenShareConfig.active && screenShareConfig.mode === "chrome";
 
   return (
     <>
-      {/* Top-left buttons — auto-hide */}
+      {/* Top-left buttons */}
       <div
         className={`absolute z-10 m-24 transition-opacity duration-500 ${
           shouldShowUI ? "opacity-100" : "opacity-0 pointer-events-none"
@@ -155,6 +170,30 @@ export const Menu = ({
                 <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z" />
               </svg>
               Live
+            </div>
+          )}
+          {/* Vision active indicator */}
+          {showVisionBadge && (
+            <div
+              className={`flex items-center gap-4 px-12 py-8 rounded-16 text-sm font-bold border transition-colors ${
+                visionStatus === "capturing" || visionStatus === "analyzing"
+                  ? "bg-purple-500/30 border-purple-500/60 text-purple-700 animate-pulse"
+                  : "bg-purple-500/15 border-purple-500/30 text-purple-600"
+              }`}
+              title={
+                visionStatus === "capturing"
+                  ? "Capturando pantalla..."
+                  : visionStatus === "analyzing"
+                  ? "Analizando con Llama 4 Scout..."
+                  : `Visión activa · próxima en ${visionSecondsUntilNext}s`
+              }
+            >
+              <span>👁</span>
+              <span className="hidden sm:inline">
+                {visionStatus === "capturing" ? "Cap..." :
+                 visionStatus === "analyzing" ? "IA..." :
+                 `${visionSecondsUntilNext}s`}
+              </span>
             </div>
           )}
           {screenShareConfig.active && (
@@ -188,6 +227,12 @@ export const Menu = ({
           screenShareConfig={screenShareConfig}
           backgroundConfig={backgroundConfig}
           captionStyle={captionStyle}
+          visionConfig={visionConfig}
+          visionStatus={visionStatus}
+          visionLastDescription={visionLastDescription}
+          visionLastCaptureTime={visionLastCaptureTime}
+          visionSecondsUntilNext={visionSecondsUntilNext}
+          visionError={visionError}
           isMobile={isMobile}
           onClickClose={() => setShowSettings(false)}
           onSaveAndClose={handleSaveAndClose}
@@ -207,6 +252,8 @@ export const Menu = ({
           onScreenShareStop={onScreenShareStop}
           onChangeBackgroundConfig={onChangeBackgroundConfig}
           onChangeCaptionStyle={onChangeCaptionStyle}
+          onChangeVisionConfig={onChangeVisionConfig}
+          onVisionCaptureNow={onVisionCaptureNow}
           onLoadSettings={onLoadSettings}
         />
       )}
