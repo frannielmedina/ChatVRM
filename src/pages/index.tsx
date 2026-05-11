@@ -10,7 +10,7 @@ import { speakCharacter } from "@/features/messages/speakCharacter";
 import { MessageInputContainer } from "@/components/messageInputContainer";
 import { SYSTEM_PROMPT } from "@/features/constants/systemPromptConstants";
 import { KoeiroParam, DEFAULT_PARAM } from "@/features/constants/koeiroParam";
-import { getChatResponseStream } from "@/features/chat/multiProviderChat";
+import { getChatResponseStream, truncateHistory } from "@/features/chat/multiProviderChat";
 import { Introduction } from "@/components/introduction";
 import { Menu } from "@/components/menu";
 import { GitHubLink } from "@/components/githubLink";
@@ -125,12 +125,9 @@ export default function Home() {
   }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle]);
 
   // ── VRM model persistence ──────────────────────────────────────────────────
-  // After viewer is ready + loading complete, restore the last-used VRM model.
-  // If no custom model was saved, load the default one.
   const [viewerReady, setViewerReady] = useState(false);
 
   useEffect(() => {
-    // Poll until viewer is ready
     const check = setInterval(() => {
       if (viewer.isReady) {
         setViewerReady(true);
@@ -147,10 +144,8 @@ export default function Home() {
     const isDefault = localStorage.getItem(VRM_IS_DEFAULT_KEY);
 
     if (savedUrl && isDefault !== "true") {
-      // Restore custom VRM model
       viewer.loadVrm(savedUrl);
     } else {
-      // Load default model and mark it
       const defaultUrl = buildUrl("/AvatarSample_B.vrm");
       viewer.loadVrm(defaultUrl);
       localStorage.setItem(VRM_URL_KEY, defaultUrl);
@@ -158,8 +153,7 @@ export default function Home() {
     }
   }, [viewerReady, isLoading, viewer]);
 
-  // ── VRM file load handler (from menu) ─────────────────────────────────────
-  // We need to intercept the VRM load to save it to localStorage
+  // ── VRM file load handler ──────────────────────────────────────────────────
   const handleVrmFileLoad = useCallback((url: string) => {
     viewer.loadVrm(url);
     localStorage.setItem(VRM_URL_KEY, url);
@@ -184,14 +178,10 @@ export default function Home() {
   }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle]);
 
   // ── !reset command handler ─────────────────────────────────────────────────
-  // Resets: clears chat history, reloads saved custom VRM (not default),
-  // keeps Twitch connected
   const handleResetCommand = useCallback(() => {
-    // Clear chat history only
     setChatLog([]);
     setAssistantMessage("");
 
-    // Reload the VRM model that was set in settings (not the hard-coded default)
     const savedUrl = localStorage.getItem(VRM_URL_KEY);
     if (savedUrl) {
       viewer.loadVrm(savedUrl);
@@ -259,10 +249,16 @@ export default function Home() {
       ];
       setChatLog(messageLog);
 
-      const messages: Message[] = [
+      // ── Build messages with system prompt ──────────────────────────────
+      const allMessages: Message[] = [
         { role: "system", content: systemPrompt },
         ...messageLog,
       ];
+
+      // ── TRUNCATE HISTORY to avoid 413 / 429 errors ─────────────────────
+      // Keeps the system prompt + last N conversation pairs.
+      // For Groq free tier (6k TPM), this is the most important protection.
+      const messages = truncateHistory(allMessages, aiConfig.provider);
 
       const stream = await getChatResponseStream(messages, aiConfig).catch((e) => {
         console.error(e);
@@ -359,7 +355,7 @@ export default function Home() {
       setTwitchMessages((prev) => [...prev.slice(-49), msg]);
       if (twitchConfig.respondToChat && !chatProcessing) {
         const trimmed = msg.message.trim();
-        if (trimmed.startsWith("!")) return; // skip commands
+        if (trimmed.startsWith("!")) return;
         const startsWithMention = /^@\S+/.test(trimmed);
         if (startsWithMention) return;
         const prompt = `[Twitch chat] ${msg.username}: ${msg.message}`;
@@ -367,7 +363,6 @@ export default function Home() {
       }
     });
 
-    // Register !reset command for mods/broadcaster
     const cmdUnsub = twitchClient.onCommand((command) => {
       if (command === "!reset") {
         handleResetCommand();
