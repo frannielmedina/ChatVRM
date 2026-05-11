@@ -67,8 +67,8 @@ export function cleanModelOutput(text: string): string {
   // 2. Remove an opening <think> tag that hasn't been closed yet
   clean = clean.replace(/<think>[\s\S]*/gi, "");
 
-  // 3. Remove *asterisk actions*
-  clean = clean.replace(/\*[^*]+\*/g, "");
+  // 3. Remove *asterisk actions* like *nods*, *winks*, *smiles*, etc.
+  clean = clean.replace(/\*[^*\n]+\*/g, "");
 
   // 4. Collapse runs of 3+ blank lines (but do NOT trim edges — preserves spaces)
   clean = clean.replace(/\n{3,}/g, "\n\n");
@@ -120,13 +120,29 @@ function getExtraHeaders(config: AIProviderConfig): Record<string, string> {
   return {};
 }
 
+/**
+ * Returns extra body params for models that need special handling.
+ *
+ * Qwen3 on Groq supports a "thinking" budget parameter.
+ * Setting budget_tokens=0 disables the reasoning/thinking block entirely,
+ * which prevents <think>...</think> from appearing in the output at all.
+ * This is the Groq-documented way to disable Qwen3 reasoning.
+ *
+ * References:
+ *   https://console.groq.com/docs/thinking
+ */
 function getExtraBodyParams(config: AIProviderConfig): Record<string, unknown> {
   const model = config.model ?? "";
-  if (
+  const isQwen3OnGroq =
     config.provider === "groq" &&
-    (model.includes("qwen3") || model.includes("qwen/qwen3"))
-  ) {
-    return { enable_thinking: false };
+    (model.toLowerCase().includes("qwen3") ||
+      model.toLowerCase().includes("qwen/qwen3"));
+
+  if (isQwen3OnGroq) {
+    return {
+      // Groq's documented way to disable Qwen3 thinking entirely
+      reasoning_effort: "none",
+    };
   }
   return {};
 }
@@ -170,7 +186,6 @@ function flushCleanBuffer(raw: string): FlushResult {
   let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, "");
 
   // Check if there is still an *unclosed* <think> in the cleaned string.
-  // Use case-insensitive search on the cleaned string.
   const lowerCleaned = cleaned.toLowerCase();
   const openIdx = lowerCleaned.lastIndexOf("<think>");
 
@@ -181,10 +196,9 @@ function flushCleanBuffer(raw: string): FlushResult {
       // Truly unclosed — hold everything from the opening tag onwards.
       const safePrefix = cleaned.slice(0, openIdx);
       const remainder = cleaned.slice(openIdx);
-      // Clean the safe prefix but do NOT trim — preserve trailing spaces.
       return {
         output: cleanModelOutput(safePrefix),
-        remainder,               // remainder will be re-evaluated next chunk
+        remainder,
       };
     }
   }
@@ -263,7 +277,7 @@ async function getChatResponseStreamGoogle(
             } catch (_) {}
           }
         }
-        // Flush any remainder — strip any dangling <think> tag
+        // Flush any remainder
         if (thinkBuffer) {
           const cleaned = cleanModelOutput(thinkBuffer).trim();
           if (cleaned) controller.enqueue(cleaned);
