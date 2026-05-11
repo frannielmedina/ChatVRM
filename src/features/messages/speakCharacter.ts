@@ -3,6 +3,23 @@ import { Viewer } from "../vrmViewer/viewer";
 import { Screenplay, Talk } from "./messages";
 import { TTSConfig } from "../tts/ttsConfig";
 import { synthesizeWithProvider } from "../tts/ttsProviders";
+// Import the TTS-busy flag so the mic container knows when to mute/unmute
+import { setTtsSpeaking } from "@/components/messageInputContainer";
+
+// ── How many speeches are currently in-flight ─────────────────────────────────
+// We use a counter instead of a boolean so overlapping sentences don't
+// prematurely clear the "speaking" flag.
+let _activeSpeechCount = 0;
+
+function markTtsStart() {
+  _activeSpeechCount++;
+  if (_activeSpeechCount === 1) setTtsSpeaking(true);
+}
+
+function markTtsEnd() {
+  _activeSpeechCount = Math.max(0, _activeSpeechCount - 1);
+  if (_activeSpeechCount === 0) setTtsSpeaking(false);
+}
 
 const createSpeakCharacter = () => {
   let lastTime = 0;
@@ -34,10 +51,17 @@ const createSpeakCharacter = () => {
       ([audioBuffer]) => {
         onStart?.();
         if (!audioBuffer) return;
+
+        // ── Signal TTS start ──────────────────────────────────────────────
+        markTtsStart();
+
         return viewer.model?.speak(audioBuffer, screenplay);
       }
     );
+
     prevSpeakPromise.then(() => {
+      // ── Signal TTS end ────────────────────────────────────────────────
+      markTtsEnd();
       onComplete?.();
     });
   };
