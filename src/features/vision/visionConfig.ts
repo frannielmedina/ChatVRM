@@ -15,11 +15,11 @@ export const DEFAULT_VISION_CONFIG: VisionConfig = {
 };
 
 export const VISION_INTERVALS = [
-  { label: "30 segundos", value: 30 },
-  { label: "1 minuto", value: 60 },
-  { label: "2 minutos", value: 120 },
-  { label: "5 minutos", value: 300 },
-  { label: "7 minutos", value: 420 },
-  { label: "10 minutos", value: 600 },
-  { label: "15 minutos", value: 900 },
+  { label: "30 seconds", value: 30 },
+  { label: "1 minute",   value: 60 },
+  { label: "2 minutes",  value: 120 },
+  { label: "5 minutes",  value: 300 },
+  { label: "7 minutes",  value: 420 },
+  { label: "10 minutes", value: 600 },
+  { label: "15 minutes", value: 900 },
 ];
