@@ -15,9 +15,10 @@ export async function captureFrameFromStream(
     if (!track || track.readyState !== "live") return null;
 
     // Use ImageCapture API if available (Chrome)
-    if (typeof ImageCapture !== "undefined") {
+    const ImageCaptureAPI = (window as any).ImageCapture;
+    if (typeof ImageCaptureAPI !== "undefined") {
       try {
-        const imageCapture = new (ImageCapture as any)(track);
+        const imageCapture = new ImageCaptureAPI(track);
         const bitmap = await imageCapture.grabFrame();
         const canvas = document.createElement("canvas");
         canvas.width = Math.min(bitmap.width, 1280);
@@ -59,21 +60,6 @@ export async function captureFrameFromStream(
   }
 }
 
-/**
- * Captures the entire browser viewport via html2canvas-like approach.
- * Used when no stream is available but the page itself can be captured.
- * Falls back to null if not possible.
- */
-export async function captureViewport(quality = 0.6): Promise<string | null> {
-  try {
-    // Try to use getDisplayMedia to capture — this requires a user gesture,
-    // so this path only works if the user already granted screen capture.
-    return null; // Can't auto-capture without a stream
-  } catch {
-    return null;
-  }
-}
-
 // ── Groq Vision API call ──────────────────────────────────────────────────────
 
 export interface VisionResult {
@@ -84,8 +70,6 @@ export interface VisionResult {
 /**
  * Sends a captured frame to Llama 4 Scout via Groq's vision API.
  * Returns a short description of what's happening on screen.
- *
- * The system prompt is injected here so the AI responds IN CHARACTER.
  */
 export async function analyzeFrameWithVision(
   base64Image: string,
@@ -97,7 +81,6 @@ export async function analyzeFrameWithVision(
     return { description: "", error: "No Groq API key configured for vision." };
   }
 
-  // Short, punchy prompt that makes the VTuber react to what she sees
   const visionPrompt = `You are watching the streamer's screen right now. Describe briefly (1-2 sentences max) what you see happening — what game/app is open, what's going on. Be casual and in character. Do NOT use emotion tags or pose tags in this specific observation — just the raw text description. Keep it short and natural, like you just glanced at their screen.`;
 
   try {
@@ -123,7 +106,7 @@ export async function analyzeFrameWithVision(
                 type: "image_url",
                 image_url: {
                   url: `data:image/jpeg;base64,${base64Image}`,
-                  detail: "low", // "low" = cheaper + faster, good enough for game context
+                  detail: "low",
                 },
               },
               {
@@ -151,10 +134,7 @@ export async function analyzeFrameWithVision(
   }
 }
 
-// ── VDO.Ninja frame capture ───────────────────────────────────────────────────
-// VDO.Ninja runs in an iframe so we can't directly access its video element.
-// The best we can do is capture the whole page using captureFrameFromStream
-// if the user granted screen share permission, or ask them to use Chrome screen share mode.
+// ── Capability check ──────────────────────────────────────────────────────────
 
 export function canCaptureVisionFromConfig(
   screenShareMode: "chrome" | "vdoninja",
@@ -164,6 +144,5 @@ export function canCaptureVisionFromConfig(
     const track = stream.getVideoTracks()[0];
     return !!(track && track.readyState === "live");
   }
-  // VDO.Ninja iframe — cannot directly capture
   return false;
 }
