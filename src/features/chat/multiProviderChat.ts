@@ -1,10 +1,85 @@
 import { Message } from "../messages/messages";
 import { AIProviderConfig } from "./aiProviders";
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Token limits per provider (free tier safe values) ─────────────────────────
+//
+// Groq free tier limits (on-demand):
+//   llama-3.1-8b-instant  → 6,000 TPM,  14,400 RPD
+//   llama-3.3-70b-versatile → 6,000 TPM, 1,000 RPD
+//   llama3-70b-8192       → 6,000 TPM,  14,400 RPD
+//   mixtral-8x7b-32768    → 5,000 TPM,  14,400 RPD
+//   gemma2-9b-it          → 15,000 TPM, 14,400 RPD
+//
+// Strategy: keep output tokens low so input+output stays under the per-minute limit.
+// For an average conversation with a short system prompt + 10 history messages,
+// input is ~1,500–2,500 tokens.  Leaving 800–1,200 for output keeps total under 4,000.
+//
+// If you upgrade to Groq Dev tier the limits are much higher; you can raise these.
 
-const MAX_TOKENS = 4096;
-const TEMPERATURE = 0.8; // Coherent but expressive — not chaotic
+const MAX_TOKENS_BY_PROVIDER: Partial<Record<string, number>> = {
+  groq:       800,   // strict: free tier is only 6k TPM
+  mistral:    1200,
+  google:     2048,
+  openrouter: 1200,
+  fireworks:  1200,
+  ollama:     2048,  // local — no cloud rate limits
+  lmstudio:   2048,  // local — no cloud rate limits
+};
+
+const DEFAULT_MAX_TOKENS = 1000;
+
+function getMaxTokens(provider: string): number {
+  return MAX_TOKENS_BY_PROVIDER[provider] ?? DEFAULT_MAX_TOKENS;
+}
+
+const TEMPERATURE = 0.8;
+
+// ── History truncation ────────────────────────────────────────────────────────
+// Keep only the last N user+assistant pairs to avoid 413 (payload too large)
+// and to reduce input token count for rate-limited providers.
+//
+// Groq free tier: 10 pairs ≈ ~1,500–2,000 input tokens (safe under 6k TPM)
+// You can raise this for paid tiers.
+
+const MAX_HISTORY_PAIRS_BY_PROVIDER: Partial<Record<string, number>> = {
+  groq:       8,   // conservative for free tier
+  mistral:    12,
+  google:     20,
+  openrouter: 12,
+  fireworks:  12,
+  ollama:     20,
+  lmstudio:   20,
+};
+
+const DEFAULT_MAX_HISTORY_PAIRS = 10;
+
+/**
+ * Truncates the messages array to keep only:
+ *   - the system message (always first, always kept)
+ *   - the last N user+assistant pairs
+ *
+ * This prevents 413 errors and reduces input token count.
+ */
+export function truncateHistory(
+  messages: Message[],
+  provider: string
+): Message[] {
+  const maxPairs =
+    MAX_HISTORY_PAIRS_BY_PROVIDER[provider] ?? DEFAULT_MAX_HISTORY_PAIRS;
+
+  const systemMessages = messages.filter((m) => m.role === "system");
+  const conversationMessages = messages.filter((m) => m.role !== "system");
+
+  // Each "pair" is one user + one assistant message = 2 messages
+  const maxMessages = maxPairs * 2;
+
+  const truncated =
+    conversationMessages.length > maxMessages
+      ? conversationMessages.slice(-maxMessages)
+      : conversationMessages;
+
+  return [...systemMessages, ...truncated];
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,8 +126,6 @@ function getExtraHeaders(config: AIProviderConfig): Record<string, string> {
 }
 
 // ── SSE line parser ───────────────────────────────────────────────────────────
-// Extracts the text content from a single "data: {...}" SSE line.
-// Returns null if the line should be skipped (DONE, empty, non-data, parse error).
 function extractContentFromSSELine(line: string): string | null {
   const trimmed = line.trim();
   if (!trimmed || !trimmed.startsWith("data:")) return null;
@@ -63,7 +136,6 @@ function extractContentFromSSELine(line: string): string | null {
   try {
     const json = JSON.parse(data);
     const piece = json?.choices?.[0]?.delta?.content;
-    // piece could be an empty string "" for keep-alive chunks — filter those out
     return typeof piece === "string" && piece.length > 0 ? piece : null;
   } catch (_) {
     return null;
@@ -78,10 +150,14 @@ async function getChatResponseStreamGoogle(
 ): Promise<ReadableStream> {
   const model = config.model || "gemini-2.0-flash";
   const apiKey = config.apiKey;
+  const maxTokens = getMaxTokens(config.provider);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-  const systemMsg = messages.find((m) => m.role === "system");
-  const chatMsgs = messages.filter((m) => m.role !== "system");
+  // Truncate history before sending
+  const truncated = truncateHistory(messages, config.provider);
+
+  const systemMsg = truncated.find((m) => m.role === "system");
+  const chatMsgs = truncated.filter((m) => m.role !== "system");
 
   const body: Record<string, unknown> = {
     contents: chatMsgs.map((m) => ({
@@ -89,7 +165,7 @@ async function getChatResponseStreamGoogle(
       parts: [{ text: m.content }],
     })),
     generationConfig: {
-      maxOutputTokens: MAX_TOKENS,
+      maxOutputTokens: maxTokens,
       temperature: TEMPERATURE,
     },
   };
@@ -141,15 +217,18 @@ async function getChatResponseStreamGoogle(
 }
 
 // ── OpenAI-compatible streaming ───────────────────────────────────────────────
-// Groq, Mistral, OpenRouter, Fireworks, Ollama, LMStudio
 
 async function getChatResponseStreamOpenAICompat(
   messages: Message[],
   config: AIProviderConfig
 ): Promise<ReadableStream> {
+  // Truncate history before sending
+  const truncated = truncateHistory(messages, config.provider);
+
   const baseUrl = getBaseUrl(config);
   const url = `${baseUrl}/chat/completions`;
   const model = config.model || "";
+  const maxTokens = getMaxTokens(config.provider);
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -158,23 +237,18 @@ async function getChatResponseStreamOpenAICompat(
   };
 
   const body: Record<string, unknown> = {
-    messages,
+    messages: truncated,
     stream: true,
-    max_tokens: MAX_TOKENS,
+    max_tokens: maxTokens,
     temperature: TEMPERATURE,
   };
 
-  // model is required for all except lmstudio (uses whatever is loaded)
   if (config.provider !== "lmstudio" || model) {
     body.model = model;
   }
 
-  // NOTE: Do NOT add stream_options for Groq — it causes intermittent failures
-  // with smaller models like llama-3.1-8b-instant. Groq streams fine without it.
-
-  // OpenRouter-specific: set a reasonable context window
   if (config.provider === "openrouter") {
-    body.max_tokens = MAX_TOKENS;
+    body.max_tokens = maxTokens;
   }
 
   const res = await fetch(url, {
@@ -193,7 +267,6 @@ async function getChatResponseStreamOpenAICompat(
   return new ReadableStream({
     async start(controller) {
       const decoder = new TextDecoder("utf-8");
-      // Buffer accumulates bytes until we have complete SSE lines
       let buffer = "";
 
       try {
@@ -201,12 +274,9 @@ async function getChatResponseStreamOpenAICompat(
           const { done, value } = await reader.read();
           if (done) break;
 
-          // Append new decoded text to buffer
           buffer += decoder.decode(value, { stream: true });
 
-          // Process all complete lines (split on \n, keep trailing incomplete line)
           const lines = buffer.split("\n");
-          // The last element is either empty (line ended with \n) or an incomplete line
           buffer = lines.pop() ?? "";
 
           for (const line of lines) {
@@ -215,13 +285,10 @@ async function getChatResponseStreamOpenAICompat(
           }
         }
 
-        // Flush the decoder
         const finalChunk = decoder.decode(undefined, { stream: false });
         if (finalChunk) buffer += finalChunk;
 
-        // Process any remaining complete lines in the buffer
         if (buffer.trim()) {
-          // Handle the case where the last chunk didn't end with \n
           for (const line of buffer.split("\n")) {
             const piece = extractContentFromSSELine(line);
             if (piece !== null) controller.enqueue(piece);
@@ -254,13 +321,16 @@ export async function getChatResponse(
   messages: Message[],
   config: AIProviderConfig
 ): Promise<{ message: string }> {
+  const truncated = truncateHistory(messages, config.provider);
+  const maxTokens = getMaxTokens(config.provider);
+
   if (config.provider === "google") {
     const model = config.model || "gemini-2.0-flash";
     const apiKey = config.apiKey;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    const systemMsg = messages.find((m) => m.role === "system");
-    const chatMsgs = messages.filter((m) => m.role !== "system");
+    const systemMsg = truncated.find((m) => m.role === "system");
+    const chatMsgs = truncated.filter((m) => m.role !== "system");
 
     const body: Record<string, unknown> = {
       contents: chatMsgs.map((m) => ({
@@ -268,7 +338,7 @@ export async function getChatResponse(
         parts: [{ text: m.content }],
       })),
       generationConfig: {
-        maxOutputTokens: MAX_TOKENS,
+        maxOutputTokens: maxTokens,
         temperature: TEMPERATURE,
       },
     };
@@ -296,8 +366,8 @@ export async function getChatResponse(
   };
 
   const body: Record<string, unknown> = {
-    messages,
-    max_tokens: MAX_TOKENS,
+    messages: truncated,
+    max_tokens: maxTokens,
     temperature: TEMPERATURE,
   };
   if (config.provider !== "lmstudio" || config.model) {
