@@ -8,6 +8,7 @@ import { ScreenShareSettings } from "./screenShareSettings";
 import { AIProviderSettings } from "./aiProviderSettings";
 import { BackgroundSettings } from "./backgroundSettings";
 import { CaptionSettings } from "./captionSettings";
+import { VisionSettings } from "./visionSettings";
 import { SettingsPorter } from "./settingsPorter";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
@@ -17,6 +18,8 @@ import { BackgroundConfig } from "@/features/background/backgroundConfig";
 import { KoeiroParam } from "@/features/constants/koeiroParam";
 import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 import { CaptionStyle } from "./captionSettings";
+import { VisionConfig } from "@/features/vision/visionConfig";
+import { VisionStatus } from "@/features/vision/useVision";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -29,6 +32,12 @@ type Props = {
   screenShareConfig: ScreenShareConfig;
   backgroundConfig: BackgroundConfig;
   captionStyle: CaptionStyle;
+  visionConfig: VisionConfig;
+  visionStatus: VisionStatus;
+  visionLastDescription: string;
+  visionLastCaptureTime: Date | null;
+  visionSecondsUntilNext: number;
+  visionError: string | null;
   isMobile: boolean;
   onClickClose: () => void;
   onSaveAndClose: () => void;
@@ -48,6 +57,8 @@ type Props = {
   onScreenShareStop: () => void;
   onChangeBackgroundConfig: (config: BackgroundConfig) => void;
   onChangeCaptionStyle: (style: CaptionStyle) => void;
+  onChangeVisionConfig: (config: VisionConfig) => void;
+  onVisionCaptureNow: () => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
 };
 
@@ -104,6 +115,12 @@ export const SettingsContent = (props: Props) => {
     screenShareConfig,
     backgroundConfig,
     captionStyle,
+    visionConfig,
+    visionStatus,
+    visionLastDescription,
+    visionLastCaptureTime,
+    visionSecondsUntilNext,
+    visionError,
     onClickClose,
     onSaveAndClose,
     onChangeSystemPrompt,
@@ -122,6 +139,8 @@ export const SettingsContent = (props: Props) => {
     onScreenShareStop,
     onChangeBackgroundConfig,
     onChangeCaptionStyle,
+    onChangeVisionConfig,
+    onVisionCaptureNow,
     onLoadSettings,
     isMobile,
   } = props;
@@ -260,6 +279,20 @@ export const SettingsContent = (props: Props) => {
             onStop={onScreenShareStop}
           />
 
+          <VisionSettings
+            config={visionConfig}
+            onChangeConfig={onChangeVisionConfig}
+            onCaptureNow={onVisionCaptureNow}
+            status={visionStatus}
+            lastDescription={visionLastDescription}
+            lastCaptureTime={visionLastCaptureTime}
+            secondsUntilNext={visionSecondsUntilNext}
+            error={visionError}
+            screenShareActive={screenShareConfig.active}
+            screenShareMode={screenShareConfig.mode}
+            groqApiKey={aiConfig.provider === "groq" ? aiConfig.apiKey : undefined}
+          />
+
           {chatLog.length > 0 && (
             <div className="my-40">
               <div className="my-8">
@@ -298,13 +331,12 @@ export const SettingsContent = (props: Props) => {
   );
 };
 
-// ── Settings — centered modal dialog that works everywhere ────────────────────
+// ── Settings — centered modal dialog ─────────────────────────────────────────
 export const Settings = (props: Props) => {
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    // Tiny delay so the CSS transition fires on mount
     const raf = requestAnimationFrame(() => setVisible(true));
     return () => cancelAnimationFrame(raf);
   }, []);
@@ -320,7 +352,6 @@ export const Settings = (props: Props) => {
     );
   }
 
-  // Desktop — floating dialog over the 3D scene
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -332,7 +363,6 @@ export const Settings = (props: Props) => {
         opacity: visible ? 1 : 0,
         transition: "opacity 200ms ease",
       }}
-      // Click the dark backdrop to save & close
       onClick={(e) => { if (e.target === e.currentTarget) props.onSaveAndClose(); }}
     >
       <div
@@ -351,5 +381,5 @@ export const Settings = (props: Props) => {
   );
 };
 
-// Legacy export aliases (keeps any other imports working)
+// Legacy export alias
 export const SettingsPopup = Settings;
