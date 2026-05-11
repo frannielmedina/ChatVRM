@@ -1,0 +1,250 @@
+import React, { useCallback } from "react";
+import { VisionConfig, VISION_INTERVALS } from "@/features/vision/visionConfig";
+import { VisionStatus } from "@/features/vision/useVision";
+
+type Props = {
+  config: VisionConfig;
+  onChangeConfig: (c: VisionConfig) => void;
+  onCaptureNow: () => void;
+  status: VisionStatus;
+  lastDescription: string;
+  lastCaptureTime: Date | null;
+  secondsUntilNext: number;
+  error: string | null;
+  screenShareActive: boolean;
+  screenShareMode: "chrome" | "vdoninja";
+  /** The Groq API key from aiConfig — pre-fill if vision key is empty */
+  groqApiKey?: string;
+};
+
+const STATUS_INFO: Record<VisionStatus, { icon: string; label: string; color: string }> = {
+  idle:       { icon: "⏸",  label: "En espera",      color: "text-text-primary/50" },
+  capturing:  { icon: "📸", label: "Capturando...",   color: "text-blue-600" },
+  analyzing:  { icon: "🔍", label: "Analizando...",   color: "text-purple-600" },
+  ready:      { icon: "✅", label: "Listo",           color: "text-green-600" },
+  error:      { icon: "❌", label: "Error",           color: "text-red-600" },
+  no_stream:  { icon: "🚫", label: "Sin stream",      color: "text-orange-600" },
+};
+
+function formatCountdown(seconds: number): string {
+  if (seconds <= 0) return "ahora";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+export const VisionSettings = ({
+  config,
+  onChangeConfig,
+  onCaptureNow,
+  status,
+  lastDescription,
+  lastCaptureTime,
+  secondsUntilNext,
+  error,
+  screenShareActive,
+  screenShareMode,
+  groqApiKey,
+}: Props) => {
+  const update = useCallback(
+    (partial: Partial<VisionConfig>) => onChangeConfig({ ...config, ...partial }),
+    [config, onChangeConfig]
+  );
+
+  const statusInfo = STATUS_INFO[status];
+  const isVdoninja = screenShareMode === "vdoninja";
+  const canUseVision = screenShareActive && !isVdoninja;
+
+  // Auto-fill key from AI config if empty
+  const effectiveKey = config.groqApiKey || groqApiKey || "";
+
+  return (
+    <div className="my-40">
+      <div className="my-16 typography-20 font-bold flex items-center gap-8">
+        <span>👁 Screen Vision</span>
+        {config.enabled && (
+          <span className="text-xs bg-purple-500 text-white px-8 py-2 rounded-oval font-normal">
+            ACTIVO
+          </span>
+        )}
+      </div>
+
+      {/* Info box */}
+      <div className="mb-16 p-12 bg-surface1 rounded-8 text-sm text-text-primary/70 leading-relaxed">
+        <p>
+          Usa <strong>Llama 4 Scout</strong> (modelo multimodal de Groq) para que tu VTuber
+          vea lo que está pasando en pantalla cada cierto tiempo y lo comente de forma natural.
+        </p>
+        <p className="mt-6">
+          La IA analiza un screenshot de tu stream y genera un comentario en personaje que se
+          mezcla con la conversación normal. Los mensajes de Twitch siguen siendo procesados
+          por Llama 3.1/3.3 sin visión.
+        </p>
+      </div>
+
+      {/* VDO.Ninja warning */}
+      {isVdoninja && screenShareActive && (
+        <div className="mb-16 p-12 bg-orange-500/10 border border-orange-500/30 rounded-8 text-sm text-orange-700">
+          <strong>⚠ Modo VDO.Ninja detectado:</strong> La visión no puede capturar el iframe
+          de VDO.Ninja. Cambia a <strong>Chrome Screen Share</strong> para usar la visión.
+        </div>
+      )}
+
+      {!screenShareActive && (
+        <div className="mb-16 p-12 bg-yellow-500/10 border border-yellow-500/30 rounded-8 text-sm text-yellow-700">
+          <strong>⚠ Sin pantalla compartida:</strong> Activa el screen share (modo Chrome)
+          en la sección "Screen Share" para que la visión pueda capturar frames.
+        </div>
+      )}
+
+      <div className="p-16 bg-surface1 rounded-8 flex flex-col gap-16">
+
+        {/* Enable toggle */}
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-bold">Visión periódica</div>
+            <div className="text-xs text-text-primary/60 mt-1">
+              Captura la pantalla automáticamente y hace que la IA comente lo que ve
+            </div>
+          </div>
+          <button
+            onClick={() => update({ enabled: !config.enabled })}
+            disabled={!canUseVision}
+            className={`relative w-48 h-24 rounded-full transition-all duration-300 ${
+              config.enabled && canUseVision
+                ? "bg-purple-500"
+                : "bg-surface3"
+            } ${!canUseVision ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+          >
+            <span
+              className={`absolute top-2 w-20 h-20 bg-white rounded-full shadow transition-all duration-300 ${
+                config.enabled && canUseVision ? "left-26" : "left-2"
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Groq API Key */}
+        <div>
+          <div className="font-bold mb-4 text-sm">
+            Groq API Key para Visión
+            <span className="ml-6 text-xs font-normal text-text-primary/50">
+              (si está vacío usa la clave principal de Groq)
+            </span>
+          </div>
+          <input
+            className="text-ellipsis px-12 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8 text-sm"
+            type="password"
+            placeholder={effectiveKey ? "Usando clave de Groq AI (puede dejarse vacío)" : "gsk_..."}
+            value={config.groqApiKey}
+            onChange={(e) => update({ groqApiKey: e.target.value })}
+          />
+          {effectiveKey && !config.groqApiKey && (
+            <div className="text-xs text-green-600 mt-4">
+              ✓ Usando la API key de Groq configurada en AI Provider
+            </div>
+          )}
+        </div>
+
+        {/* Model info */}
+        <div>
+          <div className="font-bold mb-4 text-sm">Modelo de visión</div>
+          <div className="px-12 py-8 bg-surface3 rounded-8 text-sm flex items-center justify-between">
+            <span className="font-mono text-xs">{config.model}</span>
+            <span className="text-xs text-purple-600 font-bold">Groq Multimodal</span>
+          </div>
+          <div className="text-xs text-text-primary/50 mt-4">
+            Llama 4 Scout 17B — optimizado para análisis visual rápido
+          </div>
+        </div>
+
+        {/* Interval selector */}
+        <div>
+          <div className="font-bold mb-8 text-sm">Frecuencia de captura</div>
+          <div className="grid grid-cols-2 gap-6">
+            {VISION_INTERVALS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => update({ intervalSeconds: opt.value })}
+                className={`py-8 px-12 rounded-8 text-sm border-2 transition-all text-left ${
+                  config.intervalSeconds === opt.value
+                    ? "border-purple-500 bg-purple-500/10 text-purple-700 font-bold"
+                    : "border-surface3 bg-surface3 hover:border-purple-400/50"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Status panel */}
+        <div className="border-t border-surface3 pt-12">
+          <div className="font-bold mb-8 text-sm">Estado de la visión</div>
+          <div className="flex items-center gap-8 mb-8">
+            <span className="text-lg">{statusInfo.icon}</span>
+            <span className={`font-bold text-sm ${statusInfo.color}`}>{statusInfo.label}</span>
+            {config.enabled && status !== "error" && status !== "no_stream" && secondsUntilNext > 0 && (
+              <span className="text-xs text-text-primary/50 ml-auto">
+                Próxima captura en: <strong>{formatCountdown(secondsUntilNext)}</strong>
+              </span>
+            )}
+          </div>
+
+          {error && (
+            <div className="text-xs text-red-600 bg-red-500/10 border border-red-500/20 rounded-8 px-12 py-8 mb-8">
+              {error}
+            </div>
+          )}
+
+          {lastDescription && (
+            <div className="bg-surface3 rounded-8 p-12 text-sm">
+              <div className="text-xs text-text-primary/50 mb-4">
+                Última observación
+                {lastCaptureTime && (
+                  <span className="ml-6">
+                    — {lastCaptureTime.toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+              <p className="text-text-primary leading-relaxed italic">
+                &ldquo;{lastDescription}&rdquo;
+              </p>
+            </div>
+          )}
+
+          {/* Manual capture button */}
+          <button
+            onClick={onCaptureNow}
+            disabled={!canUseVision || status === "capturing" || status === "analyzing"}
+            className="mt-8 w-full py-8 rounded-8 bg-purple-500 hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors flex items-center justify-center gap-8"
+          >
+            {(status === "capturing" || status === "analyzing") ? (
+              <>
+                <span className="animate-spin">⟳</span>
+                {status === "capturing" ? "Capturando frame..." : "Analizando..."}
+              </>
+            ) : (
+              <>📸 Capturar ahora</>
+            )}
+          </button>
+        </div>
+
+        {/* How it works */}
+        <details className="text-xs text-text-primary/50">
+          <summary className="cursor-pointer font-bold hover:text-text-primary/70">
+            ¿Cómo funciona?
+          </summary>
+          <div className="mt-8 space-y-4 leading-relaxed">
+            <p>1. Cada N segundos, se captura un frame del stream de pantalla (solo modo Chrome).</p>
+            <p>2. El frame se envía a <strong>Llama 4 Scout</strong> en Groq vía su API multimodal.</p>
+            <p>3. El modelo describe lo que ve en pantalla, en personaje.</p>
+            <p>4. La descripción se convierte en un mensaje de chat normal — tu VTuber lo dice en voz alta con la emoción y el pose correctos.</p>
+            <p>5. Los mensajes de Twitch chat siguen usando Llama 3.x sin imagen — la visión solo se activa en el timer periódico o con el botón manual.</p>
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+};
