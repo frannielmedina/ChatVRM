@@ -78,12 +78,14 @@ export const VisionSettings = ({
         </p>
       </div>
 
-      {/* VDO.Ninja note (informational, not a blocker) */}
+      {/* VDO.Ninja note */}
       {screenShareMode === "vdoninja" && screenShareActive && (
-        <div className="mb-16 p-12 bg-blue-500/10 border border-blue-500/30 rounded-8 text-sm text-blue-700">
-          <strong>ℹ VDO.Ninja mode:</strong> Vision captures frames directly from the
-          VDO.Ninja video element. If capture fails (cross-origin restriction), switch to{" "}
-          <strong>Chrome Screen Share</strong> for guaranteed frame access.
+        <div className="mb-16 p-12 bg-blue-500/10 border border-blue-500/30 rounded-8 text-sm text-blue-700 leading-relaxed">
+          <strong>ℹ VDO.Ninja mode:</strong> Because VDO.Ninja runs in a cross-origin
+          iframe, vision captures the <strong>current browser tab</strong> instead.
+          The <strong>first capture</strong> will open a browser prompt — select{" "}
+          <strong>&ldquo;This Tab&rdquo;</strong> and click Share. After that the stream
+          is cached and all future captures happen silently.
         </div>
       )}
 
