@@ -139,8 +139,16 @@ export const Menu = ({
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
   const shouldShowUI = uiVisible || (showSettings && isMobile);
 
-  // Vision status badge in the toolbar
-  const showVisionBadge = visionConfig.enabled && screenShareConfig.active && screenShareConfig.mode === "chrome";
+  // Vision can be toggled if screen share is active (chrome or vdoninja)
+  const canToggleVision = screenShareConfig.active;
+
+  const handleVisionToggle = useCallback(() => {
+    onChangeVisionConfig({ ...visionConfig, enabled: !visionConfig.enabled });
+  }, [visionConfig, onChangeVisionConfig]);
+
+  // Determine vision button appearance
+  const visionActive = visionConfig.enabled && screenShareConfig.active;
+  const visionBusy   = visionStatus === "capturing" || visionStatus === "analyzing";
 
   return (
     <>
@@ -151,12 +159,15 @@ export const Menu = ({
         }`}
       >
         <div className="grid grid-flow-col gap-[8px]">
+          {/* Settings */}
           <IconButton
             iconName="24/Menu"
             label="Settings"
             isProcessing={false}
             onClick={() => setShowSettings(true)}
           />
+
+          {/* Chat Log */}
           <IconButton
             iconName={showChatLog ? "24/CommentFill" : "24/CommentOutline"}
             label="Chat Log"
@@ -164,6 +175,8 @@ export const Menu = ({
             disabled={chatLog.length <= 0}
             onClick={() => setShowChatLog(true)}
           />
+
+          {/* Twitch badge */}
           {twitchConnected && (
             <div className="flex items-center gap-4 px-12 py-8 bg-[#9146FF]/20 border border-[#9146FF]/40 rounded-16 text-[#9146FF] text-sm font-bold">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="#9146FF">
@@ -172,37 +185,42 @@ export const Menu = ({
               Live
             </div>
           )}
-          {/* Vision active indicator */}
-          {showVisionBadge && (
-            <div
-              className={`flex items-center gap-4 px-12 py-8 rounded-16 text-sm font-bold border transition-colors ${
-                visionStatus === "capturing" || visionStatus === "analyzing"
-                  ? "bg-purple-500/30 border-purple-500/60 text-purple-700 animate-pulse"
-                  : "bg-purple-500/15 border-purple-500/30 text-purple-600"
-              }`}
-              title={
-                visionStatus === "capturing"
-                  ? "Capturando pantalla..."
-                  : visionStatus === "analyzing"
-                  ? "Analizando con Llama 4 Scout..."
-                  : `Visión activa · próxima en ${visionSecondsUntilNext}s`
-              }
-            >
-              <span>👁</span>
-              <span className="hidden sm:inline">
-                {visionStatus === "capturing" ? "Cap..." :
-                 visionStatus === "analyzing" ? "IA..." :
-                 `${visionSecondsUntilNext}s`}
-              </span>
-            </div>
-          )}
+
+          {/* Screen share active: Stop button + Vision toggle */}
           {screenShareConfig.active && (
-            <button
-              onClick={onScreenShareStop}
-              className="flex items-center gap-4 px-12 py-8 bg-green-500/20 border border-green-500/40 rounded-16 text-green-600 text-sm font-bold hover:bg-secondary/20 hover:border-secondary/40 hover:text-secondary transition-colors"
-            >
-              🖥️ Stop Share
-            </button>
+            <>
+              {/* Vision quick-toggle */}
+              <button
+                onClick={handleVisionToggle}
+                title={visionActive ? "Disable real-time vision" : "Enable real-time vision"}
+                className={`flex items-center gap-4 px-12 py-8 rounded-16 text-sm font-bold border transition-colors ${
+                  visionActive
+                    ? visionBusy
+                      ? "bg-purple-500/40 border-purple-500/70 text-purple-700 animate-pulse cursor-default"
+                      : "bg-purple-500/25 border-purple-500/60 text-purple-700 hover:bg-purple-500/35"
+                    : "bg-surface1 border-surface3 text-text-primary/60 hover:border-purple-400/50 hover:text-purple-600"
+                }`}
+              >
+                <span className={visionBusy ? "animate-spin inline-block" : ""}>
+                  {visionBusy ? "⟳" : "👁"}
+                </span>
+                <span className="hidden sm:inline">
+                  {visionBusy
+                    ? visionStatus === "capturing" ? "Cap…" : "AI…"
+                    : visionActive
+                    ? `${visionSecondsUntilNext}s`
+                    : "Vision"}
+                </span>
+              </button>
+
+              {/* Stop share */}
+              <button
+                onClick={onScreenShareStop}
+                className="flex items-center gap-4 px-12 py-8 bg-green-500/20 border border-green-500/40 rounded-16 text-green-600 text-sm font-bold hover:bg-secondary/20 hover:border-secondary/40 hover:text-secondary transition-colors"
+              >
+                🖥️ Stop Share
+              </button>
+            </>
           )}
         </div>
       </div>

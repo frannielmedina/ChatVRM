@@ -13,7 +13,6 @@ type Props = {
   error: string | null;
   screenShareActive: boolean;
   screenShareMode: "chrome" | "vdoninja";
-  /** The Groq API key from aiConfig — pre-fill if vision key is empty */
   groqApiKey?: string;
 };
 
@@ -53,10 +52,10 @@ export const VisionSettings = ({
   );
 
   const statusInfo = STATUS_INFO[status];
-  const isVdoninja = screenShareMode === "vdoninja";
-  const canUseVision = screenShareActive && !isVdoninja;
 
-  // Auto-fill key from AI config if empty
+  // Vision is available in both chrome and vdoninja modes
+  const canUseVision = screenShareActive;
+
   const effectiveKey = config.groqApiKey || groqApiKey || "";
 
   return (
@@ -73,28 +72,25 @@ export const VisionSettings = ({
       {/* Info box */}
       <div className="mb-16 p-12 bg-surface1 rounded-8 text-sm text-text-primary/70 leading-relaxed">
         <p>
-          Uses <strong>Llama 4 Scout</strong> (Groq multimodal model) to let your VTuber
-          see what is happening on screen periodically and comment on it in character.
-        </p>
-        <p className="mt-6">
-          The AI analyzes a screenshot of your stream and generates an in-character comment
-          that blends naturally into the conversation. Twitch messages continue to be
-          processed by Llama 3.1/3.3 without vision.
+          Uses <strong>Llama 4 Scout</strong> (Groq multimodal) to periodically analyze your
+          screen and have the character comment on it in character. Works with both{" "}
+          <strong>Chrome Screen Share</strong> and <strong>VDO.Ninja</strong> modes.
         </p>
       </div>
 
-      {/* VDO.Ninja warning */}
-      {isVdoninja && screenShareActive && (
-        <div className="mb-16 p-12 bg-orange-500/10 border border-orange-500/30 rounded-8 text-sm text-orange-700">
-          <strong>⚠ VDO.Ninja mode detected:</strong> Vision cannot capture frames from a
-          VDO.Ninja iframe. Switch to <strong>Chrome Screen Share</strong> mode to use vision.
+      {/* VDO.Ninja note (informational, not a blocker) */}
+      {screenShareMode === "vdoninja" && screenShareActive && (
+        <div className="mb-16 p-12 bg-blue-500/10 border border-blue-500/30 rounded-8 text-sm text-blue-700">
+          <strong>ℹ VDO.Ninja mode:</strong> Vision captures frames directly from the
+          VDO.Ninja video element. If capture fails (cross-origin restriction), switch to{" "}
+          <strong>Chrome Screen Share</strong> for guaranteed frame access.
         </div>
       )}
 
       {!screenShareActive && (
         <div className="mb-16 p-12 bg-yellow-500/10 border border-yellow-500/30 rounded-8 text-sm text-yellow-700">
-          <strong>⚠ No active screen share:</strong> Enable screen sharing (Chrome mode)
-          in the Screen Share section so vision can capture frames.
+          <strong>⚠ No active screen share:</strong> Enable screen sharing (Chrome or
+          VDO.Ninja mode) in the Screen Share section so vision can capture frames.
         </div>
       )}
 
@@ -105,7 +101,8 @@ export const VisionSettings = ({
           <div>
             <div className="font-bold">Periodic Vision</div>
             <div className="text-xs text-text-primary/60 mt-1">
-              Automatically captures the screen and has the AI comment on what it sees
+              Automatically captures the screen and has the AI comment on what it sees.
+              Also toggleable via the 👁 button in the toolbar.
             </div>
           </div>
           <button
@@ -237,11 +234,11 @@ export const VisionSettings = ({
             How does it work?
           </summary>
           <div className="mt-8 space-y-4 leading-relaxed">
-            <p>1. Every N seconds, a frame is captured from the screen share stream (Chrome mode only).</p>
+            <p>1. Every N seconds, a frame is captured from the active screen share (Chrome or VDO.Ninja).</p>
             <p>2. The frame is sent to <strong>Llama 4 Scout</strong> on Groq via its multimodal API.</p>
             <p>3. The model describes what it sees on screen, in character.</p>
-            <p>4. The description becomes a normal chat message &mdash; your VTuber says it aloud with the correct emotion and pose.</p>
-            <p>5. Twitch chat messages continue using Llama 3.x without images &mdash; vision only activates on the periodic timer or via the manual button.</p>
+            <p>4. The description becomes a normal chat message — your VTuber says it aloud.</p>
+            <p>5. You can also click <strong>Capture Now</strong> for an instant observation, or use the 👁 toolbar button to toggle vision on/off without opening Settings.</p>
           </div>
         </details>
       </div>
