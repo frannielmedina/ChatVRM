@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { VisionConfig } from "./visionConfig";
 import {
   captureFrameFromStream,
+  captureFrameFromVideoElement,
   analyzeFrameWithVision,
-  canCaptureVisionFromConfig,
 } from "./visionProvider";
 
 export type VisionStatus =
@@ -24,14 +24,9 @@ export type VisionHookResult = {
 };
 
 /**
- * useVision — periodically captures the screen share stream and sends it
- * to Llama 4 Scout for a character commentary.
- *
- * @param config          Vision settings (enabled, interval, model, key)
- * @param stream          The active MediaStream from screen share (or null)
- * @param screenShareMode "chrome" | "vdoninja"
- * @param systemPrompt    The character's system prompt (injected into vision call)
- * @param onDescription   Callback called with the AI description — feed this into handleSendChat
+ * useVision — periodically captures the screen share stream (or VDO.Ninja
+ * iframe via a hidden video element) and sends it to Llama 4 Scout for
+ * in-character commentary.
  */
 export function useVision(
   config: VisionConfig,
@@ -47,35 +42,35 @@ export function useVision(
   const [error, setError] = useState<string | null>(null);
 
   // Refs to avoid stale closures in timers
-  const configRef = useRef(config);
-  const streamRef = useRef(stream);
-  const systemPromptRef = useRef(systemPrompt);
+  const configRef        = useRef(config);
+  const streamRef        = useRef(stream);
+  const modeRef          = useRef(screenShareMode);
+  const systemPromptRef  = useRef(systemPrompt);
   const onDescriptionRef = useRef(onDescription);
-  const isRunningRef = useRef(false);
+  const isRunningRef     = useRef(false);
 
-  useEffect(() => { configRef.current = config; }, [config]);
-  useEffect(() => { streamRef.current = stream; }, [stream]);
-  useEffect(() => { systemPromptRef.current = systemPrompt; }, [systemPrompt]);
+  useEffect(() => { configRef.current       = config;        }, [config]);
+  useEffect(() => { streamRef.current       = stream;        }, [stream]);
+  useEffect(() => { modeRef.current         = screenShareMode; }, [screenShareMode]);
+  useEffect(() => { systemPromptRef.current = systemPrompt;  }, [systemPrompt]);
   useEffect(() => { onDescriptionRef.current = onDescription; }, [onDescription]);
 
-  const intervalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const intervalTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const nextCaptureTimeRef = useRef<number>(0);
 
   // ── Core capture function ──────────────────────────────────────────────────
   const runCapture = useCallback(async () => {
-    if (isRunningRef.current) return; // prevent overlap
-    const cfg = configRef.current;
-    const activeStream = streamRef.current;
-    const mode = screenShareMode;
+    if (isRunningRef.current) return;
 
-    if (!canCaptureVisionFromConfig(mode, activeStream)) {
+    const cfg    = configRef.current;
+    const mode   = modeRef.current;
+    const active = streamRef.current;
+
+    // For chrome mode, we need a live stream
+    if (mode === "chrome" && (!active || !active.getVideoTracks()[0] || active.getVideoTracks()[0].readyState !== "live")) {
       setStatus("no_stream");
-      setError(
-        mode === "vdoninja"
-          ? "VDO.Ninja mode no soporta captura de visión directamente. Usa el modo Chrome Screen Share para visión."
-          : "No hay stream activo. Comparte la pantalla para activar la visión."
-      );
+      setError("No active screen share stream. Start Chrome screen share first.");
       return;
     }
 
@@ -83,17 +78,29 @@ export function useVision(
     setError(null);
 
     try {
-      // 1. Capture frame
       setStatus("capturing");
-      const frame = await captureFrameFromStream(activeStream!, 0.65);
+
+      let frame: string | null = null;
+
+      if (mode === "chrome" && active) {
+        // Capture from the MediaStream directly
+        frame = await captureFrameFromStream(active, 0.65);
+      } else if (mode === "vdoninja") {
+        // Capture from the VDO.Ninja iframe's video element
+        frame = await captureFrameFromVideoElement();
+      }
+
       if (!frame) {
         setStatus("error");
-        setError("No se pudo capturar el frame. ¿El stream sigue activo?");
+        setError(
+          mode === "vdoninja"
+            ? "Could not capture from VDO.Ninja. Make sure the iframe has loaded and a video is playing."
+            : "Could not capture frame. Is the stream still active?"
+        );
         isRunningRef.current = false;
         return;
       }
 
-      // 2. Analyze with vision
       setStatus("analyzing");
       const result = await analyzeFrameWithVision(
         frame,
@@ -112,8 +119,6 @@ export function useVision(
         setLastDescription(result.description);
         setLastCaptureTime(new Date());
         setStatus("ready");
-
-        // Wrap the description with an emotion tag so the character reacts
         const chatText = `[vision_observation] ${result.description}`;
         onDescriptionRef.current(chatText);
       } else {
@@ -126,12 +131,12 @@ export function useVision(
     } finally {
       isRunningRef.current = false;
     }
-  }, [screenShareMode]);
+  }, []);
 
-  // ── Manual trigger ────────────────────────────────────────────────────────
+  // ── Manual trigger ─────────────────────────────────────────────────────────
   const captureNow = useCallback(async () => {
     await runCapture();
-    // Reset the interval timer after a manual capture
+    // Reset the interval after a manual capture
     if (intervalTimerRef.current) {
       clearInterval(intervalTimerRef.current);
       intervalTimerRef.current = null;
@@ -159,11 +164,12 @@ export function useVision(
   }, []);
 
   // ── Main effect: start/stop interval ──────────────────────────────────────
+  // Re-runs when enabled, interval, stream, or mode changes so that enabling
+  // vision *before* starting screen share still works once the stream arrives.
   useEffect(() => {
-    // Clear existing timers
-    if (intervalTimerRef.current) clearInterval(intervalTimerRef.current);
+    if (intervalTimerRef.current)  clearInterval(intervalTimerRef.current);
     if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-    intervalTimerRef.current = null;
+    intervalTimerRef.current  = null;
     countdownTimerRef.current = null;
 
     if (!config.enabled) {
@@ -172,10 +178,20 @@ export function useVision(
       return;
     }
 
-    // Run an initial capture shortly after enabling
+    // For chrome mode, don't start if we don't have a stream yet
+    if (screenShareMode === "chrome" && !stream) {
+      setStatus("no_stream");
+      setError("Start Chrome screen share to enable real-time vision.");
+      return;
+    }
+
+    // Clear any previous error now that we have what we need
+    setError(null);
+
+    // Initial capture after a short delay
     const initialDelay = setTimeout(() => {
       runCapture();
-    }, 3000); // wait 3 seconds before first capture
+    }, 2000);
 
     const intervalMs = config.intervalSeconds * 1000;
     nextCaptureTimeRef.current = Date.now() + config.intervalSeconds * 1000;
@@ -189,13 +205,14 @@ export function useVision(
 
     return () => {
       clearTimeout(initialDelay);
-      if (intervalTimerRef.current) clearInterval(intervalTimerRef.current);
+      if (intervalTimerRef.current)  clearInterval(intervalTimerRef.current);
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-      intervalTimerRef.current = null;
+      intervalTimerRef.current  = null;
       countdownTimerRef.current = null;
     };
+  // Re-run when stream becomes available or mode/enabled/interval changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.enabled, config.intervalSeconds]);
+  }, [config.enabled, config.intervalSeconds, stream, screenShareMode]);
 
   return {
     status,
