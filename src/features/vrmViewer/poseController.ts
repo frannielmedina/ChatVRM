@@ -67,47 +67,69 @@ async function fetchPose(path: string): Promise<PoseFile | null> {
   }
 }
 
-// ── Bone override map (stores immutable target quaternions) ───────────────────
+// ── Bone override map ─────────────────────────────────────────────────────────
 type BoneOverrideMap = Map<string, THREE.Quaternion>;
 
 /**
- * Convert a pose-file quaternion [x, y, z, w] into the correct space.
+ * Detect whether this VRM went through VRMUtils.rotateVRM0().
  *
- * Pose JSON files were authored in VRM 0.x world space.
- * `VRMUtils.rotateVRM0` (called in model.ts) rotates the whole model 180°
- * around Y so it faces the camera.  After that rotation the normalized
- * humanoid bone axes have their X and Z components flipped relative to the
- * raw JSON values.  We must negate X and Z to compensate, otherwise poses
- * appear left-right mirrored on any model that goes through rotateVRM0
- * (which is every VRM 0.x model, including user-uploaded ones).
+ * rotateVRM0 is called for every VRM 0.x model in model.ts.
+ * @pixiv/three-vrm v1.x exposes the spec version on vrm.meta.metaVersion:
+ *   "0"  → VRM 0.x  (rotateVRM0 WAS applied)
+ *   "1"  → VRM 1.0  (rotateVRM0 was NOT applied)
  *
- * VRM 1.0 models are NOT rotated by rotateVRM0, so they don't need the flip.
- * The `isVrm0` flag controls which path is taken.
+ * Fallbacks for edge cases:
+ *   - If metaVersion is absent but meta has a "specVersion" field → VRM 1.0
+ *   - If meta has a "version" string (VRM0 metadata field) → VRM 0.x
+ *   - Otherwise assume VRM 0.x (the common case for community models)
  */
-function convertPoseQuat(x: number, y: number, z: number, w: number, isVrm0: boolean): THREE.Quaternion {
-  if (isVrm0) {
-    // Negate X and Z to undo the effect of the 180° Y rotation applied by rotateVRM0
-    return new THREE.Quaternion(-x, y, -z, w);
+function detectIsVrm0(vrm: VRM): boolean {
+  const meta = vrm.meta as any;
+  if (meta?.metaVersion !== undefined) {
+    return String(meta.metaVersion) === "0";
   }
-  return new THREE.Quaternion(x, y, z, w);
+  if (meta?.specVersion !== undefined) return false; // VRM 1.0
+  if (meta?.version !== undefined)     return true;  // VRM 0.x
+  return true; // safe default
+}
+
+/**
+ * Conjugate a pose quaternion to account for the 180° Y rotation applied by
+ * VRMUtils.rotateVRM0.
+ *
+ * rotateVRM0 sets scene.rotation.y = π, equivalent to the quaternion R = (0, 1, 0, 0).
+ * Applying R to a local bone quaternion q gives:  q' = R * q * R⁻¹
+ * For R = 180° Y: R⁻¹ = R (self-inverse), so q' = R * q * R
+ *
+ * Expanding the quaternion product for R = (0,1,0,0):
+ *   x' = -x,  y' = y,  z' = -z,  w' = w
+ *
+ * This is correct for the normalized humanoid bone local space used by
+ * getNormalizedBoneNode / applyPoseOverride.
+ */
+function applyVrm0CoordFix(x: number, y: number, z: number, w: number): THREE.Quaternion {
+  return new THREE.Quaternion(-x, y, -z, w);
 }
 
 function buildOverrideMap(pose: PoseFile, tag: string, isVrm0: boolean): BoneOverrideMap {
   const map: BoneOverrideMap = new Map();
   const skipSet = tag === "bow" ? SKIP_BONES_BOW : SKIP_BONES;
 
+  const makeQuat = (x: number, y: number, z: number, w: number) =>
+    isVrm0 ? applyVrm0CoordFix(x, y, z, w) : new THREE.Quaternion(x, y, z, w);
+
   if ("pose" in pose) {
     for (const [boneName, boneData] of Object.entries((pose as LegacyPoseFile).pose)) {
       if (skipSet.has(boneName)) continue;
       const [x, y, z, w] = boneData.rotation;
-      map.set(boneName, convertPoseQuat(x, y, z, w, isVrm0));
+      map.set(boneName, makeQuat(x, y, z, w));
     }
   } else {
     for (const [boneName, boneData] of Object.entries((pose as NewPoseFile).bones)) {
       if (skipSet.has(boneName)) continue;
       if (boneData.rotation?.values?.length) {
         const [x, y, z, w] = boneData.rotation.values[0];
-        map.set(boneName, convertPoseQuat(x, y, z, w, isVrm0));
+        map.set(boneName, makeQuat(x, y, z, w));
       }
     }
   }
@@ -132,10 +154,8 @@ let _restoreTimer: ReturnType<typeof setTimeout>  | null = null;
 let _fadeTimer:    ReturnType<typeof setInterval> | null = null;
 
 const POSE_DURATION_MS = 3000;
-
 const CYCLE_SWING_MS   = 350;
 const CYCLE_TICK_MS    = 16;
-
 const FADE_STEPS       = 12;
 const FADE_IN_STEP_MS  = 12;
 const FADE_OUT_STEP_MS = 25;
@@ -171,7 +191,6 @@ export function applyPoseOverride(vrm: VRM): void {
 
       const quatFrom = _cycleFrom!.get(boneName);
       const quatTo   = _cycleTo!.get(boneName);
-
       let targetQuat: THREE.Quaternion;
 
       if (quatFrom && quatTo) {
@@ -240,29 +259,14 @@ function startFadeOut(onDone?: () => void) {
 
 function startCycleOscillator() {
   if (_cycleTimer) { clearInterval(_cycleTimer); _cycleTimer = null; }
-
   const step = CYCLE_TICK_MS / CYCLE_SWING_MS;
-
   _cycleT   = 0;
   _cycleDir = 1;
-
   _cycleTimer = setInterval(() => {
     _cycleT += _cycleDir * step;
-    if (_cycleT >= 1) {
-      _cycleT   = 1;
-      _cycleDir = -1;
-    } else if (_cycleT <= 0) {
-      _cycleT   = 0;
-      _cycleDir = 1;
-    }
+    if (_cycleT >= 1) { _cycleT = 1; _cycleDir = -1; }
+    else if (_cycleT <= 0) { _cycleT = 0; _cycleDir = 1; }
   }, CYCLE_TICK_MS);
-}
-
-// ── VRM version detection helper ──────────────────────────────────────────────
-
-function isVrm0Model(vrm: VRM): boolean {
-  // VRM 0.x models have metaVersion "0"; VRM 1.x have "1"
-  return (vrm.meta as any)?.metaVersion === "0";
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -274,7 +278,7 @@ export async function playPose(vrm: VRM, tag: string): Promise<void> {
   const poses = (await Promise.all(files.map(fetchPose))).filter(Boolean) as PoseFile[];
   if (poses.length === 0) return;
 
-  const isVrm0 = isVrm0Model(vrm);
+  const isVrm0 = detectIsVrm0(vrm);
 
   cancelAllTimers();
 
