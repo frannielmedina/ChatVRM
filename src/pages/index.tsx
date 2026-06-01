@@ -52,6 +52,24 @@ import { buildUrl } from "@/utils/buildUrl";
 const VRM_URL_KEY = "chatVRM_lastVrmUrl";
 const VRM_IS_DEFAULT_KEY = "chatVRM_isDefaultVrm";
 
+// ── CJK detection ─────────────────────────────────────────────────────────────
+// Returns true if the text contains a significant amount of CJK characters.
+// We use this to decide whether to buffer the whole response before splitting
+// into TTS sentences (avoiding word-by-word fragmentation for Chinese/Japanese).
+function isCJKHeavy(text: string): boolean {
+  const cjkMatches = text.match(/[\u3000-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/g);
+  if (!cjkMatches) return false;
+  // More than 20% CJK characters → treat as CJK
+  return cjkMatches.length / text.length > 0.2;
+}
+
+// ── Asterisk action stripper (also used here before display) ──────────────────
+function stripAsteriskActions(text: string): string {
+  let clean = text.replace(/\*[^*\r\n]+\*/g, "");
+  clean = clean.replace(/\*/g, "");
+  return clean.replace(/\s{2,}/g, " ").trim();
+}
+
 export default function Home() {
   const { viewer } = useContext(ViewerContext);
   const uiVisible = useAutoHide(3000);
@@ -272,70 +290,88 @@ export default function Home() {
       }
 
       const reader = stream.getReader();
-      let receivedMessage = "";
-      let aiTextLog = "";
-      let tag = "";
-      const sentences = new Array<string>();
+
+      // ── Collect the full streamed response ────────────────────────────────
+      // We always collect the full text first so we can:
+      //   1. Detect CJK and avoid word-by-word splitting
+      //   2. Strip asterisk actions from the complete response
+      //   3. Split correctly on sentence-final punctuation
+
+      let fullResponse = "";
 
       try {
         while (true) {
           const { done, value } = await reader.read();
-
-          if (done) {
-            const remaining = receivedMessage.trim();
-            if (remaining) {
-              const aiText = `${tag} ${remaining}`;
-              const aiTalks = textsToScreenplay([aiText], koeiroParam);
-              aiTextLog += aiText;
-              sentences.push(remaining);
-              const currentAssistantMessage = sentences.join(" ");
-              handleSpeakAi(aiTalks[0], () => {
-                setAssistantMessage(currentAssistantMessage);
-              });
-            }
-            break;
-          }
-
-          receivedMessage += value;
-
-          const tagMatch = receivedMessage.match(/^\[(.*?)\]/);
-          if (tagMatch && tagMatch[0]) {
-            tag = tagMatch[0];
-            receivedMessage = receivedMessage.slice(tag.length);
-          }
-
-          const sentenceMatch = receivedMessage.match(/^(.+[。．！？\n])/);
-          if (sentenceMatch && sentenceMatch[0]) {
-            const sentence = sentenceMatch[0];
-            sentences.push(sentence);
-            receivedMessage = receivedMessage.slice(sentence.length).trimStart();
-
-            if (
-              !sentence.replace(
-                /^[\s\[\(\{「［（【『〈《〔｛«‹〘〚〛〙›»〕》〉』】）］」\}\)\]]+$/g,
-                ""
-              )
-            ) {
-              continue;
-            }
-
-            const aiText = `${tag} ${sentence}`;
-            const aiTalks = textsToScreenplay([aiText], koeiroParam);
-            aiTextLog += aiText;
-
-            const currentAssistantMessage = sentences.join(" ");
-            handleSpeakAi(aiTalks[0], () => {
-              setAssistantMessage(currentAssistantMessage);
-            });
-          }
+          if (done) break;
+          if (value) fullResponse += value;
         }
       } catch (e) {
-        console.error(e);
+        console.error("[stream read]", e);
       } finally {
         reader.releaseLock();
       }
 
-      setChatLog([...messageLog, { role: "assistant", content: aiTextLog }]);
+      // ── Post-process the complete response ────────────────────────────────
+
+      // Strip asterisk actions from the entire response
+      const cleanedResponse = stripAsteriskActions(fullResponse);
+      if (!cleanedResponse.trim()) {
+        setChatProcessing(false);
+        return;
+      }
+
+      // Extract the leading emotion/pose tag (always at the very start)
+      let tag = "";
+      let body = cleanedResponse;
+      const tagMatch = cleanedResponse.match(/^(\[[a-zA-Z_]*?\](?:\[[a-zA-Z_]*?\])?)\s*/);
+      if (tagMatch) {
+        tag = tagMatch[1];
+        body = cleanedResponse.slice(tagMatch[0].length);
+      }
+
+      // ── CJK mode: send whole body as one TTS unit ─────────────────────────
+      // For Chinese/Japanese, sentence boundaries aren't always clear and
+      // the text often has no CJK-final punctuation. Streaming char-by-char
+      // would cause word-by-word TTS. We emit it as one block.
+      const isCJK = isCJKHeavy(body);
+
+      let sentences: string[];
+      if (isCJK) {
+        // Split only on strong punctuation; if none, treat whole body as one sentence
+        const cjkSplit = body.split(/(?<=[。．！？\n])/g).filter((s) => s.trim());
+        sentences = cjkSplit.length > 0 ? cjkSplit : [body];
+      } else {
+        // Latin / mixed: split on sentence-ending punctuation
+        sentences = body.split(/(?<=[.!?\n。．！？])/g).filter((s) => s.trim());
+        if (sentences.length === 0) sentences = [body];
+      }
+
+      // ── Speak each sentence ───────────────────────────────────────────────
+      const spokenSentences: string[] = [];
+
+      for (const sentence of sentences) {
+        if (!sentence.trim()) continue;
+
+        const aiText = tag ? `${tag} ${sentence}` : sentence;
+        const aiTalks = textsToScreenplay([aiText], koeiroParam);
+        if (aiTalks.length === 0) continue;
+
+        spokenSentences.push(sentence);
+        const currentDisplay = spokenSentences.join(isCJK ? "" : " ");
+
+        handleSpeakAi(aiTalks[0], () => {
+          setAssistantMessage(currentDisplay);
+        });
+      }
+
+      // ── Update chat log ───────────────────────────────────────────────────
+      // Store the full (stripped) response in the log
+      const displayResponse = stripAsteriskActions(cleanedResponse);
+      setChatLog([
+        ...messageLog,
+        { role: "assistant", content: displayResponse },
+      ]);
+
       setChatProcessing(false);
     },
     [systemPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam]
@@ -346,7 +382,6 @@ export default function Home() {
   }, [handleSendChat]);
 
   // ── Vision ─────────────────────────────────────────────────────────────────
-  // Resolve the effective Groq key for vision (falls back to main AI key)
   const effectiveVisionConfig: VisionConfig = {
     ...visionConfig,
     groqApiKey:
