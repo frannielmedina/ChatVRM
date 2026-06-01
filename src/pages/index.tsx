@@ -53,17 +53,13 @@ const VRM_URL_KEY = "chatVRM_lastVrmUrl";
 const VRM_IS_DEFAULT_KEY = "chatVRM_isDefaultVrm";
 
 // ── CJK detection ─────────────────────────────────────────────────────────────
-// Returns true if the text contains a significant amount of CJK characters.
-// We use this to decide whether to buffer the whole response before splitting
-// into TTS sentences (avoiding word-by-word fragmentation for Chinese/Japanese).
 function isCJKHeavy(text: string): boolean {
   const cjkMatches = text.match(/[\u3000-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/g);
   if (!cjkMatches) return false;
-  // More than 20% CJK characters → treat as CJK
   return cjkMatches.length / text.length > 0.2;
 }
 
-// ── Asterisk action stripper (also used here before display) ──────────────────
+// ── Asterisk action stripper ──────────────────────────────────────────────────
 function stripAsteriskActions(text: string): string {
   let clean = text.replace(/\*[^*\r\n]+\*/g, "");
   clean = clean.replace(/\*/g, "");
@@ -74,9 +70,7 @@ export default function Home() {
   const { viewer } = useContext(ViewerContext);
   const uiVisible = useAutoHide(3000);
 
-  // Loading screen state
   const [isLoading, setIsLoading] = useState(true);
-
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(DEFAULT_AI_CONFIG);
   const [koeiroParam, setKoeiroParam] = useState<KoeiroParam>(DEFAULT_PARAM);
@@ -101,6 +95,12 @@ export default function Home() {
   );
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
+
+  // ── Twitch message queue ───────────────────────────────────────────────────
+  // We queue Twitch messages and process them one-by-one, waiting for TTS to
+  // finish before moving to the next so the AI responds in order without overlap.
+  const twitchQueueRef = useRef<string[]>([]);
+  const twitchProcessingRef = useRef(false);
 
   const sendChatRef = useRef<(text: string) => Promise<void>>(async () => {});
   const twitchUnsubRef = useRef<(() => void) | null>(null);
@@ -177,14 +177,12 @@ export default function Home() {
     }
   }, [viewerReady, isLoading, viewer]);
 
-  // ── VRM file load handler ──────────────────────────────────────────────────
   const handleVrmFileLoad = useCallback((url: string) => {
     viewer.loadVrm(url);
     localStorage.setItem(VRM_URL_KEY, url);
     localStorage.setItem(VRM_IS_DEFAULT_KEY, "false");
   }, [viewer]);
 
-  // ── Save settings ──────────────────────────────────────────────────────────
   const saveSettingsNow = useCallback(() => {
     window.localStorage.setItem(
       "chatVRMParams",
@@ -202,20 +200,19 @@ export default function Home() {
     );
   }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle, visionConfig]);
 
-  // ── !reset command handler ─────────────────────────────────────────────────
   const handleResetCommand = useCallback(() => {
     setChatLog([]);
     setAssistantMessage("");
+    twitchQueueRef.current = [];
+    twitchProcessingRef.current = false;
     const savedUrl = localStorage.getItem(VRM_URL_KEY);
     if (savedUrl) {
       viewer.loadVrm(savedUrl);
     } else {
       viewer.loadVrm(buildUrl("/AvatarSample_B.vrm"));
     }
-    console.log("[!reset] Chat cleared and VRM reloaded.");
   }, [viewer]);
 
-  // ── Load settings from file ────────────────────────────────────────────────
   const handleLoadSettings = useCallback((snapshot: SettingsSnapshot) => {
     setSystemPrompt(snapshot.systemPrompt);
     setAiConfig({ ...DEFAULT_AI_CONFIG, ...snapshot.aiConfig });
@@ -228,7 +225,6 @@ export default function Home() {
     });
   }, []);
 
-  // ── Chat log handlers ──────────────────────────────────────────────────────
   const handleChangeChatLog = useCallback(
     (targetIndex: number, text: string) => {
       setChatLog((prev) =>
@@ -238,9 +234,8 @@ export default function Home() {
     []
   );
 
-  // ── Speak AI ───────────────────────────────────────────────────────────────
   const handleSpeakAi = useCallback(
-    async (
+    (
       screenplay: Screenplay,
       onStart?: () => void,
       onEnd?: () => void
@@ -250,9 +245,12 @@ export default function Home() {
     [viewer, ttsConfig, koeiroParam]
   );
 
-  // ── Send chat ──────────────────────────────────────────────────────────────
+  // ── Core send-chat function ────────────────────────────────────────────────
+  // Returns a Promise that resolves only after ALL TTS for this response has
+  // finished playing. This lets the Twitch queue await it before processing
+  // the next message.
   const handleSendChat = useCallback(
-    async (text: string) => {
+    async (text: string): Promise<void> => {
       const providerMeta = getProviderMeta(aiConfig.provider);
       const needsKey = providerMeta.requiresKey;
 
@@ -292,13 +290,7 @@ export default function Home() {
       const reader = stream.getReader();
 
       // ── Collect the full streamed response ────────────────────────────────
-      // We always collect the full text first so we can:
-      //   1. Detect CJK and avoid word-by-word splitting
-      //   2. Strip asterisk actions from the complete response
-      //   3. Split correctly on sentence-final punctuation
-
       let fullResponse = "";
-
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -311,16 +303,14 @@ export default function Home() {
         reader.releaseLock();
       }
 
-      // ── Post-process the complete response ────────────────────────────────
-
-      // Strip asterisk actions from the entire response
+      // ── Post-process ──────────────────────────────────────────────────────
       const cleanedResponse = stripAsteriskActions(fullResponse);
       if (!cleanedResponse.trim()) {
         setChatProcessing(false);
         return;
       }
 
-      // Extract the leading emotion/pose tag (always at the very start)
+      // Extract leading emotion/pose tags
       let tag = "";
       let body = cleanedResponse;
       const tagMatch = cleanedResponse.match(/^(\[[a-zA-Z_]*?\](?:\[[a-zA-Z_]*?\])?)\s*/);
@@ -329,43 +319,48 @@ export default function Home() {
         body = cleanedResponse.slice(tagMatch[0].length);
       }
 
-      // ── CJK mode: send whole body as one TTS unit ─────────────────────────
-      // For Chinese/Japanese, sentence boundaries aren't always clear and
-      // the text often has no CJK-final punctuation. Streaming char-by-char
-      // would cause word-by-word TTS. We emit it as one block.
-      const isCJK = isCJKHeavy(body);
+      // ── Show the FULL response in the caption immediately ─────────────────
+      // We set assistantMessage to the entire body (with tag) ONCE before
+      // TTS starts. This means the typewriter effect shows the whole response
+      // progressively rather than resetting per sentence.
+      const displayText = tag ? `${tag} ${body}` : body;
+      setAssistantMessage(displayText);
 
+      // ── Split into TTS sentences ──────────────────────────────────────────
+      const isCJK = isCJKHeavy(body);
       let sentences: string[];
       if (isCJK) {
-        // Split only on strong punctuation; if none, treat whole body as one sentence
         const cjkSplit = body.split(/(?<=[。．！？\n])/g).filter((s) => s.trim());
         sentences = cjkSplit.length > 0 ? cjkSplit : [body];
       } else {
-        // Latin / mixed: split on sentence-ending punctuation
         sentences = body.split(/(?<=[.!?\n。．！？])/g).filter((s) => s.trim());
         if (sentences.length === 0) sentences = [body];
       }
 
-      // ── Speak each sentence ───────────────────────────────────────────────
-      const spokenSentences: string[] = [];
+      // ── Speak all sentences, wait for the last one to finish ──────────────
+      await new Promise<void>((resolve) => {
+        let remaining = sentences.filter((s) => s.trim()).length;
+        if (remaining === 0) { resolve(); return; }
 
-      for (const sentence of sentences) {
-        if (!sentence.trim()) continue;
+        for (const sentence of sentences) {
+          if (!sentence.trim()) { remaining--; if (remaining === 0) resolve(); continue; }
 
-        const aiText = tag ? `${tag} ${sentence}` : sentence;
-        const aiTalks = textsToScreenplay([aiText], koeiroParam);
-        if (aiTalks.length === 0) continue;
+          const aiText = tag ? `${tag} ${sentence}` : sentence;
+          const aiTalks = textsToScreenplay([aiText], koeiroParam);
+          if (aiTalks.length === 0) { remaining--; if (remaining === 0) resolve(); continue; }
 
-        spokenSentences.push(sentence);
-        const currentDisplay = spokenSentences.join(isCJK ? "" : " ");
-
-        handleSpeakAi(aiTalks[0], () => {
-          setAssistantMessage(currentDisplay);
-        });
-      }
+          handleSpeakAi(
+            aiTalks[0],
+            undefined,        // no onStart — caption already set above
+            () => {           // onEnd — called when this sentence's audio finishes
+              remaining--;
+              if (remaining === 0) resolve();
+            }
+          );
+        }
+      });
 
       // ── Update chat log ───────────────────────────────────────────────────
-      // Store the full (stripped) response in the log
       const displayResponse = stripAsteriskActions(cleanedResponse);
       setChatLog([
         ...messageLog,
@@ -380,6 +375,21 @@ export default function Home() {
   useEffect(() => {
     sendChatRef.current = handleSendChat;
   }, [handleSendChat]);
+
+  // ── Twitch queue processor ─────────────────────────────────────────────────
+  // Drains the queue one message at a time. Each iteration waits for
+  // handleSendChat (and thus all TTS) to finish before starting the next.
+  const processTwitchQueue = useCallback(async () => {
+    if (twitchProcessingRef.current) return;
+    twitchProcessingRef.current = true;
+
+    while (twitchQueueRef.current.length > 0) {
+      const next = twitchQueueRef.current.shift()!;
+      await sendChatRef.current(next);
+    }
+
+    twitchProcessingRef.current = false;
+  }, []);
 
   // ── Vision ─────────────────────────────────────────────────────────────────
   const effectiveVisionConfig: VisionConfig = {
@@ -412,14 +422,19 @@ export default function Home() {
     twitchClient.connect(twitchConfig.channel, twitchConfig.oauthToken);
 
     const unsub = twitchClient.onMessage((msg) => {
+      // Always add to the overlay display list
       setTwitchMessages((prev) => [...prev.slice(-49), msg]);
-      if (twitchConfig.respondToChat && !chatProcessing) {
+
+      if (twitchConfig.respondToChat) {
         const trimmed = msg.message.trim();
         if (trimmed.startsWith("!")) return;
         const startsWithMention = /^@\S+/.test(trimmed);
         if (startsWithMention) return;
+
+        // Queue the message — the processor will handle it after current TTS finishes
         const prompt = `[Twitch chat] ${msg.username}: ${msg.message}`;
-        sendChatRef.current(prompt);
+        twitchQueueRef.current.push(prompt);
+        processTwitchQueue();
       }
     });
 
@@ -432,11 +447,13 @@ export default function Home() {
     twitchUnsubRef.current = unsub;
     twitchCmdUnsubRef.current = cmdUnsub;
     setTwitchConnected(true);
-  }, [twitchConfig, chatProcessing, handleResetCommand]);
+  }, [twitchConfig, processTwitchQueue, handleResetCommand]);
 
   const handleTwitchDisconnect = useCallback(() => {
     twitchClient.disconnect();
     setTwitchConnected(false);
+    twitchQueueRef.current = [];
+    twitchProcessingRef.current = false;
     twitchUnsubRef.current?.();
     twitchCmdUnsubRef.current?.();
     twitchUnsubRef.current = null;
@@ -486,7 +503,6 @@ export default function Home() {
     <div className={"font-M_PLUS_2"}>
       <Meta />
 
-      {/* Loading screen */}
       {isLoading && (
         <LoadingScreen onComplete={() => setIsLoading(false)} />
       )}
@@ -504,7 +520,6 @@ export default function Home() {
 
       <VrmViewer />
 
-      {/* Message input — auto-hide */}
       <div
         className={`transition-opacity duration-500 ${
           uiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
@@ -557,7 +572,6 @@ export default function Home() {
         onVrmFileLoad={handleVrmFileLoad}
       />
 
-      {/* GitHub link — auto-hide */}
       <div
         className={`transition-opacity duration-500 ${
           uiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
