@@ -5,6 +5,9 @@ export type TwitchMessage = {
   timestamp: number;
   isMod?: boolean;
   isBroadcaster?: boolean;
+  // Extended fields parsed from IRC tags
+  emotesTag?: string;      // raw emotes tag value, e.g. "25:0-4/112291:6-15"
+  badgeImages?: string[];  // CDN URLs for all badges the user has
 };
 
 export type TwitchConfig = {
@@ -26,6 +29,49 @@ export const DEFAULT_TWITCH_CONFIG: TwitchConfig = {
 type MessageHandler = (msg: TwitchMessage) => void;
 type CommandHandler = (command: string, msg: TwitchMessage) => void;
 
+// ── Badge CDN URL builder ─────────────────────────────────────────────────────
+// Twitch sends badges like "broadcaster/1,subscriber/6,bits/1000"
+// We map known badge set names to their CDN image URLs.
+// For unlisted badges we fall back to the Twitch Badges API URL pattern.
+const KNOWN_BADGE_URLS: Record<string, (version: string) => string> = {
+  broadcaster: () =>
+    "https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcafa85b/1",
+  moderator: () =>
+    "https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/1",
+  vip: () =>
+    "https://static-cdn.jtvnw.net/badges/v1/b817aba4-fad8-49e2-b88a-7cc744dfa6ec/1",
+  subscriber: (v) =>
+    `https://static-cdn.jtvnw.net/badges/v1/subscriber/${v}/1`,
+  // Well-known global badges
+  "bits-leader": () =>
+    "https://static-cdn.jtvnw.net/badges/v1/8bedf8c3-7a6a-4d16-9b10-7d4b7b8d3f5b/1",
+  partner: () =>
+    "https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab77-b780518f00a3/1",
+  turbo: () =>
+    "https://static-cdn.jtvnw.net/badges/v1/bd444ec6-8f34-4bf9-91f4-af1e3428d80f/1",
+  premium: () =>
+    "https://static-cdn.jtvnw.net/badges/v1/a1dd5073-19c3-4911-8cb4-c464a7bc1510/1",
+  "no_audio": () =>
+    "https://static-cdn.jtvnw.net/badges/v1/aef2cd08-f29b-45a1-8c12-d44d7fd5e6f0/1",
+  "no_video": () =>
+    "https://static-cdn.jtvnw.net/badges/v1/199a0dab-75d5-4c2d-a74c-19f4be4bc2fc/1",
+};
+
+function parseBadgeImages(badgesStr: string): string[] {
+  if (!badgesStr) return [];
+  const urls: string[] = [];
+  for (const badge of badgesStr.split(",")) {
+    const [name, version] = badge.split("/");
+    if (!name) continue;
+    const resolver = KNOWN_BADGE_URLS[name];
+    if (resolver) {
+      urls.push(resolver(version || "1"));
+    }
+    // Unknown badges: we skip rather than guess a broken URL
+  }
+  return urls;
+}
+
 export class TwitchClient {
   private ws: WebSocket | null = null;
   private channel = "";
@@ -45,8 +91,8 @@ export class TwitchClient {
       this.ws!.send(`PASS oauth:${token}`);
       this.ws!.send(`NICK justinfan${Math.floor(Math.random() * 99999)}`);
       this.ws!.send(`JOIN #${this.channel}`);
-      // Request tags for mod/broadcaster status
-      this.ws!.send("CAP REQ :twitch.tv/tags");
+      // Request tags for emotes, badges, mod/broadcaster status, etc.
+      this.ws!.send("CAP REQ :twitch.tv/tags twitch.tv/commands");
       console.log(`[Twitch] Connected to #${this.channel}`);
 
       this.pingInterval = setInterval(() => {
@@ -104,22 +150,25 @@ export class TwitchClient {
   private parseMessage(raw: string) {
     const lines = raw.split("\r\n").filter(Boolean);
     for (const line of lines) {
+      // ── Tagged PRIVMSG ──────────────────────────────────────────────────
       const tagMatch = line.match(/^@([^ ]+) :(\S+)!.*PRIVMSG #(\S+) :(.+)$/);
       if (tagMatch) {
         const tagsStr = tagMatch[1];
         const userStr = tagMatch[2];
-        const channelStr = tagMatch[3];
         const msg = tagMatch[4];
 
+        // Parse IRC tags into a key→value map
         const tags: Record<string, string> = {};
         tagsStr.split(";").forEach((tag) => {
-          const [k, v] = tag.split("=");
-          tags[k] = v;
+          const eqIdx = tag.indexOf("=");
+          if (eqIdx === -1) return;
+          tags[tag.slice(0, eqIdx)] = tag.slice(eqIdx + 1);
         });
 
         const isMod = tags["mod"] === "1";
+        const badgesStr = tags["badges"] || "";
         const isBroadcaster =
-          tags["badges"]?.includes("broadcaster") ||
+          badgesStr.includes("broadcaster") ||
           userStr.toLowerCase() === this.channel.toLowerCase();
 
         const twitchMsg: TwitchMessage = {
@@ -129,9 +178,13 @@ export class TwitchClient {
           timestamp: Date.now(),
           isMod,
           isBroadcaster,
+          // Pass through the raw emotes tag for rendering
+          emotesTag: tags["emotes"] || "",
+          // Parse badge CDN URLs (subscriber, bits, VIP, partner, etc.)
+          badgeImages: parseBadgeImages(badgesStr),
         };
 
-        // Check for commands (only for mods/broadcaster)
+        // Commands — only mods and broadcaster
         if ((isMod || isBroadcaster) && msg.trim().startsWith("!")) {
           const command = msg.trim().split(/\s+/)[0].toLowerCase();
           this.commandHandlers.forEach((h) => h(command, twitchMsg));
@@ -141,7 +194,7 @@ export class TwitchClient {
         return;
       }
 
-      // No-tag fallback
+      // ── Untagged PRIVMSG fallback ───────────────────────────────────────
       const simpleMatch = line.match(/:(\S+)!.*PRIVMSG #(\S+) :(.+)$/);
       if (simpleMatch) {
         const twitchMsg: TwitchMessage = {
@@ -152,9 +205,14 @@ export class TwitchClient {
           isMod: false,
           isBroadcaster:
             simpleMatch[1].toLowerCase() === this.channel.toLowerCase(),
+          emotesTag: "",
+          badgeImages: [],
         };
 
-        if (twitchMsg.isBroadcaster && simpleMatch[3].trim().startsWith("!")) {
+        if (
+          twitchMsg.isBroadcaster &&
+          simpleMatch[3].trim().startsWith("!")
+        ) {
           const command = simpleMatch[3].trim().split(/\s+/)[0].toLowerCase();
           this.commandHandlers.forEach((h) => h(command, twitchMsg));
         }
