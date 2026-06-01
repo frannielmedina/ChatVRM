@@ -27,9 +27,31 @@ export type Screenplay = {
   pose?: string;
 };
 
+// ── Asterisk-action stripper ──────────────────────────────────────────────────
+// Removes *action text* patterns so TTS never reads them aloud.
+// Examples: *giggles*, *nods*, *winks*, *catches the coin and gasps*
+// Also strips standalone asterisks left over.
+function stripAsteriskActions(text: string): string {
+  // Remove *...* blocks (greedy false so nested * don't merge)
+  let clean = text.replace(/\*[^*\r\n]+\*/g, "");
+  // Remove any lone asterisks remaining
+  clean = clean.replace(/\*/g, "");
+  // Collapse extra whitespace that may result
+  clean = clean.replace(/\s{2,}/g, " ").trim();
+  return clean;
+}
+
+// ── Sentence splitter ─────────────────────────────────────────────────────────
+// Splits on Japanese/Chinese/general punctuation.
+// For CJK text (no sentence-final punctuation), we buffer the entire response
+// and emit it as one segment to avoid word-by-word TTS fragmentation.
 export const splitSentence = (text: string): string[] => {
-  const splitMessages = text.split(/(?<=[。．！？\n])/g);
-  return splitMessages.filter((msg) => msg !== "");
+  // Strip asterisk actions from the whole text first
+  const cleaned = stripAsteriskActions(text);
+  if (!cleaned) return [];
+
+  const splitMessages = cleaned.split(/(?<=[。．！？\n])/g);
+  return splitMessages.filter((msg) => msg.trim() !== "");
 };
 
 export const textsToScreenplay = (
@@ -49,14 +71,17 @@ export const textsToScreenplay = (
     const emotionTag = allTags.find((t) => emotions.includes(t as any));
     const poseTag = allTags.find((t) => ALL_POSE_TAGS.includes(t));
 
-    // Remove all bracket tags from the spoken text
-    const message = text.replace(/\[[a-zA-Z_]*?\]/g, "").trim();
+    // Remove bracket tags AND asterisk actions from the spoken text
+    let message = text.replace(/\[[a-zA-Z_]*?\]/g, "").trim();
+    message = stripAsteriskActions(message);
 
     let expression = prevExpression;
     if (emotionTag && emotions.includes(emotionTag as any)) {
       expression = emotionTag;
       prevExpression = emotionTag;
     }
+
+    if (!message) continue; // skip if nothing left after stripping
 
     screenplays.push({
       expression: expression as EmotionType,
