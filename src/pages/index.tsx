@@ -97,8 +97,6 @@ export default function Home() {
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
 
   // ── Twitch message queue ───────────────────────────────────────────────────
-  // We queue Twitch messages and process them one-by-one, waiting for TTS to
-  // finish before moving to the next so the AI responds in order without overlap.
   const twitchQueueRef = useRef<string[]>([]);
   const twitchProcessingRef = useRef(false);
 
@@ -246,9 +244,6 @@ export default function Home() {
   );
 
   // ── Core send-chat function ────────────────────────────────────────────────
-  // Returns a Promise that resolves only after ALL TTS for this response has
-  // finished playing. This lets the Twitch queue await it before processing
-  // the next message.
   const handleSendChat = useCallback(
     async (text: string): Promise<void> => {
       const providerMeta = getProviderMeta(aiConfig.provider);
@@ -289,7 +284,8 @@ export default function Home() {
 
       const reader = stream.getReader();
 
-      // ── Collect the full streamed response ────────────────────────────────
+      // ── Collect the FULL streamed response before doing anything ──────────
+      // This ensures TTS gets the complete text at once, not word-by-word.
       let fullResponse = "";
       try {
         while (true) {
@@ -303,71 +299,50 @@ export default function Home() {
         reader.releaseLock();
       }
 
-      // ── Post-process ──────────────────────────────────────────────────────
+      // ── Post-process the complete response ────────────────────────────────
       const cleanedResponse = stripAsteriskActions(fullResponse);
       if (!cleanedResponse.trim()) {
         setChatProcessing(false);
         return;
       }
 
-      // Extract leading emotion/pose tags
-      let tag = "";
-      let body = cleanedResponse;
-      const tagMatch = cleanedResponse.match(/^(\[[a-zA-Z_]*?\](?:\[[a-zA-Z_]*?\])?)\s*/);
-      if (tagMatch) {
-        tag = tagMatch[1];
-        body = cleanedResponse.slice(tagMatch[0].length);
+      // ── Build a single screenplay from the full response ──────────────────
+      // textsToScreenplay handles emotion/pose tag extraction from the full text.
+      // We pass the entire response as one entry so the expression is applied
+      // to the whole speech, not just the first sentence.
+      const aiTalks = textsToScreenplay([cleanedResponse], koeiroParam);
+
+      if (aiTalks.length === 0) {
+        setChatProcessing(false);
+        return;
       }
 
-      // ── Show the FULL response in the caption immediately ─────────────────
-      // We set assistantMessage to the entire body (with tag) ONCE before
-      // TTS starts. This means the typewriter effect shows the whole response
-      // progressively rather than resetting per sentence.
-      const displayText = tag ? `${tag} ${body}` : body;
-      setAssistantMessage(displayText);
+      // The display text for the caption — strip leading tags for cleaner display
+      // but keep the full expression tag so AssistantText can render it.
+      const displayText = cleanedResponse;
 
-      // ── Split into TTS sentences ──────────────────────────────────────────
-      const isCJK = isCJKHeavy(body);
-      let sentences: string[];
-      if (isCJK) {
-        const cjkSplit = body.split(/(?<=[。．！？\n])/g).filter((s) => s.trim());
-        sentences = cjkSplit.length > 0 ? cjkSplit : [body];
-      } else {
-        sentences = body.split(/(?<=[.!?\n。．！？])/g).filter((s) => s.trim());
-        if (sentences.length === 0) sentences = [body];
-      }
-
-      // ── Speak all sentences, wait for the last one to finish ──────────────
+      // ── Speak the full response as ONE unit ───────────────────────────────
+      // onStart: fires when audio is ready & begins playing → show caption now
+      // onComplete: fires when audio finishes → update chat log & clear processing
       await new Promise<void>((resolve) => {
-        let remaining = sentences.filter((s) => s.trim()).length;
-        if (remaining === 0) { resolve(); return; }
-
-        for (const sentence of sentences) {
-          if (!sentence.trim()) { remaining--; if (remaining === 0) resolve(); continue; }
-
-          const aiText = tag ? `${tag} ${sentence}` : sentence;
-          const aiTalks = textsToScreenplay([aiText], koeiroParam);
-          if (aiTalks.length === 0) { remaining--; if (remaining === 0) resolve(); continue; }
-
-          handleSpeakAi(
-            aiTalks[0],
-            undefined,        // no onStart — caption already set above
-            () => {           // onEnd — called when this sentence's audio finishes
-              remaining--;
-              if (remaining === 0) resolve();
-            }
-          );
-        }
+        handleSpeakAi(
+          aiTalks[0],
+          // onStart — called right when audio begins playing
+          () => {
+            setAssistantMessage(displayText);
+          },
+          // onComplete — called when audio finishes
+          () => {
+            const displayResponse = stripAsteriskActions(cleanedResponse);
+            setChatLog([
+              ...messageLog,
+              { role: "assistant", content: displayResponse },
+            ]);
+            setChatProcessing(false);
+            resolve();
+          }
+        );
       });
-
-      // ── Update chat log ───────────────────────────────────────────────────
-      const displayResponse = stripAsteriskActions(cleanedResponse);
-      setChatLog([
-        ...messageLog,
-        { role: "assistant", content: displayResponse },
-      ]);
-
-      setChatProcessing(false);
     },
     [systemPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam]
   );
@@ -377,8 +352,6 @@ export default function Home() {
   }, [handleSendChat]);
 
   // ── Twitch queue processor ─────────────────────────────────────────────────
-  // Drains the queue one message at a time. Each iteration waits for
-  // handleSendChat (and thus all TTS) to finish before starting the next.
   const processTwitchQueue = useCallback(async () => {
     if (twitchProcessingRef.current) return;
     twitchProcessingRef.current = true;
@@ -422,7 +395,6 @@ export default function Home() {
     twitchClient.connect(twitchConfig.channel, twitchConfig.oauthToken);
 
     const unsub = twitchClient.onMessage((msg) => {
-      // Always add to the overlay display list
       setTwitchMessages((prev) => [...prev.slice(-49), msg]);
 
       if (twitchConfig.respondToChat) {
@@ -431,7 +403,6 @@ export default function Home() {
         const startsWithMention = /^@\S+/.test(trimmed);
         if (startsWithMention) return;
 
-        // Queue the message — the processor will handle it after current TTS finishes
         const prompt = `[Twitch chat] ${msg.username}: ${msg.message}`;
         twitchQueueRef.current.push(prompt);
         processTwitchQueue();
