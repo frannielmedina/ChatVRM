@@ -84,9 +84,9 @@ export const TTSSettings = ({
         <div className="mb-16 p-14 bg-red-500/10 border border-red-500/30 rounded-8 text-sm text-red-700 leading-relaxed">
           <div className="font-bold mb-4">⚠️ Koeiromap is no longer available</div>
           <p>
-            Rinna Co., Ltd. discontinued all services in 2024, including the Koeiromap
-            TTS API. The virtual YouTuber Rinna also retired and closed all her social
-            media accounts. Please switch to another TTS provider below.
+            Rinna Co., Ltd. discontinued all services in late October 2025, including the
+            Koeiromap TTS API. The virtual YouTuber Rinna also retired and closed all her
+            social media accounts. Please switch to another TTS provider below.
           </p>
         </div>
       )}
