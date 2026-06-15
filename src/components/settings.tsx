@@ -9,6 +9,7 @@ import { AIProviderSettings } from "./aiProviderSettings";
 import { BackgroundSettings } from "./backgroundSettings";
 import { CaptionSettings } from "./captionSettings";
 import { VisionSettings } from "./visionSettings";
+import { DiscordSettings } from "./discordSettings";
 import { SettingsPorter } from "./settingsPorter";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
@@ -20,6 +21,7 @@ import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 import { CaptionStyle } from "./captionSettings";
 import { VisionConfig } from "@/features/vision/visionConfig";
 import { VisionStatus } from "@/features/vision/useVision";
+import { DiscordConfig } from "@/features/discord/discordConfig";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -38,6 +40,9 @@ type Props = {
   visionLastCaptureTime: Date | null;
   visionSecondsUntilNext: number;
   visionError: string | null;
+  discordConfig: DiscordConfig;
+  discordConnected: boolean;
+  discordConnectionError: string | null;
   isMobile: boolean;
   onClickClose: () => void;
   onSaveAndClose: () => void;
@@ -59,6 +64,9 @@ type Props = {
   onChangeCaptionStyle: (style: CaptionStyle) => void;
   onChangeVisionConfig: (config: VisionConfig) => void;
   onVisionCaptureNow: () => void;
+  onChangeDiscordConfig: (config: DiscordConfig) => void;
+  onDiscordConnect: () => void;
+  onDiscordDisconnect: () => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
 };
 
@@ -121,6 +129,9 @@ export const SettingsContent = (props: Props) => {
     visionLastCaptureTime,
     visionSecondsUntilNext,
     visionError,
+    discordConfig,
+    discordConnected,
+    discordConnectionError,
     onClickClose,
     onSaveAndClose,
     onChangeSystemPrompt,
@@ -141,6 +152,9 @@ export const SettingsContent = (props: Props) => {
     onChangeCaptionStyle,
     onChangeVisionConfig,
     onVisionCaptureNow,
+    onChangeDiscordConfig,
+    onDiscordConnect,
+    onDiscordDisconnect,
     onLoadSettings,
     isMobile,
   } = props;
@@ -270,6 +284,15 @@ export const SettingsContent = (props: Props) => {
             onChangeConfig={onChangeTwitchConfig}
             onConnect={onTwitchConnect}
             onDisconnect={onTwitchDisconnect}
+          />
+
+          <DiscordSettings
+            config={discordConfig}
+            isConnected={discordConnected}
+            connectionError={discordConnectionError}
+            onChangeConfig={onChangeDiscordConfig}
+            onConnect={onDiscordConnect}
+            onDisconnect={onDiscordDisconnect}
           />
 
           <ScreenShareSettings
