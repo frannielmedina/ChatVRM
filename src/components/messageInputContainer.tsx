@@ -1,15 +1,10 @@
 import { MessageInput } from "@/components/messageInput";
 import { useState, useEffect, useCallback, useRef } from "react";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Tunables
-// ─────────────────────────────────────────────────────────────────────────────
-const SILENCE_TIMEOUT_MS = 10_000; // 10 s without new speech → auto-send
-const RESTART_DELAY_MS   = 300;    // pause before re-opening mic after TTS
+const SILENCE_TIMEOUT_MS = 10_000;
+const RESTART_DELAY_MS   = 300;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Global TTS-busy flag
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Global TTS-busy flag ──────────────────────────────────────────────────────
 let _ttsSpeaking = false;
 const _ttsListeners: Array<(v: boolean) => void> = [];
 
@@ -35,8 +30,6 @@ function useTtsSpeaking() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
 
 type Props = {
   isChatProcessing: boolean;
@@ -49,14 +42,16 @@ export const MessageInputContainer = ({
 }: Props) => {
   const [userMessage, setUserMessage]       = useState("");
   const [isMicRecording, setIsMicRecording] = useState(false);
-
-  // Whether the browser even supports SpeechRecognition
   const [micSupported, setMicSupported]     = useState(true);
 
-  // ── Refs (stable, no stale closure issues) ────────────────────────────────
   const recognitionRef   = useRef<SpeechRecognition | null>(null);
+  // true only between recognition.start() and onstart firing
+  const pendingStartRef  = useRef(false);
+  // true only while recognition is confirmed running (onstart → onend)
   const runningRef       = useRef(false);
+  // true when WE called stop() intentionally
   const stoppingRef      = useRef(false);
+  // did the user press the button to enable mic?
   const micEnabledByUser = useRef(false);
   const silenceTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedText  = useRef("");
@@ -67,12 +62,6 @@ export const MessageInputContainer = ({
   useEffect(() => { isChatProcessingRef.current   = isChatProcessing;   }, [isChatProcessing]);
 
   const ttsSpeaking = useTtsSpeaking();
-
-  // ── Safe state setter — always keeps UI in sync with runningRef ───────────
-  const setMicState = useCallback((recording: boolean) => {
-    runningRef.current = recording;
-    setIsMicRecording(recording);
-  }, []);
 
   // ── Silence timer ──────────────────────────────────────────────────────────
   const clearSilenceTimer = useCallback(() => {
@@ -86,48 +75,52 @@ export const MessageInputContainer = ({
     clearSilenceTimer();
     silenceTimerRef.current = setTimeout(() => {
       const text = accumulatedText.current.trim();
-
       if (recognitionRef.current && runningRef.current) {
         stoppingRef.current = true;
         try { recognitionRef.current.stop(); } catch (_) {}
       }
-      setMicState(false);
-
-      if (text) {
-        onChatProcessStartRef.current(text);
-      }
+      runningRef.current = false;
+      pendingStartRef.current = false;
+      setIsMicRecording(false);
+      if (text) onChatProcessStartRef.current(text);
     }, SILENCE_TIMEOUT_MS);
-  }, [clearSilenceTimer, setMicState]);
+  }, [clearSilenceTimer]);
 
-  // ── Stop recognition ───────────────────────────────────────────────────────
+  // ── Stop ───────────────────────────────────────────────────────────────────
   const stopRecognition = useCallback(() => {
     clearSilenceTimer();
-    if (recognitionRef.current && runningRef.current) {
+    if (recognitionRef.current && (runningRef.current || pendingStartRef.current)) {
       stoppingRef.current = true;
       try { recognitionRef.current.stop(); } catch (_) {}
     }
-    setMicState(false);
-  }, [clearSilenceTimer, setMicState]);
+    runningRef.current = false;
+    pendingStartRef.current = false;
+    setIsMicRecording(false);
+  }, [clearSilenceTimer]);
 
-  // ── Start recognition ──────────────────────────────────────────────────────
+  // ── Start ──────────────────────────────────────────────────────────────────
   const startRecognition = useCallback(() => {
     if (!recognitionRef.current) return;
-    if (runningRef.current) return;
+    if (runningRef.current || pendingStartRef.current) return;
     if (_ttsSpeaking) return;
     if (isChatProcessingRef.current) return;
 
     accumulatedText.current = "";
     setUserMessage("");
     stoppingRef.current = false;
+    pendingStartRef.current = true;
+    // NOTE: do NOT set isMicRecording here — wait for onstart so the button
+    // only goes green when the browser has actually opened the microphone.
 
     try {
       recognitionRef.current.start();
-      setMicState(true);
     } catch (e) {
       console.warn("[mic] start() threw:", e);
-      setMicState(false);
+      pendingStartRef.current = false;
+      runningRef.current = false;
+      setIsMicRecording(false);
     }
-  }, [setMicState]);
+  }, []);
 
   // ── Build SpeechRecognition once on mount ──────────────────────────────────
   useEffect(() => {
@@ -136,7 +129,7 @@ export const MessageInputContainer = ({
       (window as any).SpeechRecognition;
 
     if (!SpeechRecognitionAPI) {
-      console.warn("[mic] SpeechRecognition not supported in this browser.");
+      console.warn("[mic] SpeechRecognition not supported.");
       setMicSupported(false);
       return;
     }
@@ -147,111 +140,99 @@ export const MessageInputContainer = ({
     recognition.continuous      = true;
     recognition.maxAlternatives = 1;
 
+    // ── onstart: browser confirmed the mic is open ─────────────────────────
+    recognition.onstart = () => {
+      pendingStartRef.current = false;
+      runningRef.current = true;
+      setIsMicRecording(true); // only NOW show green mic
+    };
+
+    // ── onresult ───────────────────────────────────────────────────────────
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = "";
       let final   = "";
-
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          final += t;
-        } else {
-          interim += t;
-        }
+        if (event.results[i].isFinal) final += t;
+        else interim += t;
       }
-
       if (final) {
         accumulatedText.current = (accumulatedText.current + " " + final).trim();
       }
       const displayed = interim
         ? (accumulatedText.current + " " + interim).trim()
         : accumulatedText.current;
-
       setUserMessage(displayed);
       resetSilenceTimer();
     };
 
-    recognition.onstart = () => {
-      // Confirm the mic actually started (belt-and-suspenders)
-      setMicState(true);
-    };
-
+    // ── onend ──────────────────────────────────────────────────────────────
     recognition.onend = () => {
-      // Always clear the running flag when the browser fires onend
       const wasIntentional = stoppingRef.current;
       stoppingRef.current = false;
-
-      // If we weren't running (e.g. start() threw before onstart fired),
-      // just make sure UI is correct and bail.
-      if (!runningRef.current && !wasIntentional) {
-        setMicState(false);
-        return;
-      }
-
-      runningRef.current = false; // clear BEFORE setMicState so callers see correct state
+      runningRef.current = false;
+      pendingStartRef.current = false;
       clearSilenceTimer();
+      setIsMicRecording(false);
 
-      if (wasIntentional) {
-        setIsMicRecording(false);
-        return; // intentional stop — do not auto-restart
-      }
+      if (wasIntentional) return; // we called stop() — don't restart
 
       // Unexpected browser cut — restart if user still wants mic on
       if (micEnabledByUser.current && !_ttsSpeaking && !isChatProcessingRef.current) {
-        setIsMicRecording(false); // briefly show "off" before restart
         setTimeout(() => {
           if (micEnabledByUser.current && !_ttsSpeaking && !isChatProcessingRef.current) {
             startRecognition();
           }
         }, RESTART_DELAY_MS);
-      } else {
-        setIsMicRecording(false);
       }
     };
 
+    // ── onerror ────────────────────────────────────────────────────────────
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      // "aborted" fires when we call stop() intentionally — safe to ignore
-      if (event.error === "aborted") return;
+      if (event.error === "aborted") return; // we caused this, onend will clean up
 
-      console.warn("[mic] error:", event.error);
+      console.warn("[mic] SpeechRecognition error:", event.error);
 
-      // On any real error, ensure we reset to a clean state
       stoppingRef.current = false;
-      setMicState(false);
+      runningRef.current = false;
+      pendingStartRef.current = false;
       clearSilenceTimer();
+      setIsMicRecording(false);
 
-      // "not-allowed" means the user denied mic permission — disable the button
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         micEnabledByUser.current = false;
         setMicSupported(false);
+        console.warn("[mic] Microphone permission denied.");
       }
     };
 
     recognitionRef.current = recognition;
 
     return () => {
-      recognition.onresult = null as any;
       recognition.onstart  = null as any;
+      recognition.onresult = null as any;
       recognition.onend    = null as any;
       recognition.onerror  = null as any;
       clearSilenceTimer();
-      if (runningRef.current) {
+      if (runningRef.current || pendingStartRef.current) {
         try { recognition.stop(); } catch (_) {}
       }
       recognitionRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // runs once only
+  }, []);
 
-  // ── TTS starts → mute mic immediately ─────────────────────────────────────
+  // ── TTS starts → stop mic immediately ─────────────────────────────────────
   useEffect(() => {
-    if (ttsSpeaking && runningRef.current) {
+    if (ttsSpeaking && (runningRef.current || pendingStartRef.current)) {
       clearSilenceTimer();
       if (recognitionRef.current) {
         stoppingRef.current = true;
         try { recognitionRef.current.stop(); } catch (_) {}
       }
-      setMicState(false);
+      runningRef.current = false;
+      pendingStartRef.current = false;
+      setIsMicRecording(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ttsSpeaking]);
@@ -282,9 +263,9 @@ export const MessageInputContainer = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isChatProcessing]);
 
-  // ── Mic button ─────────────────────────────────────────────────────────────
+  // ── Mic button click ───────────────────────────────────────────────────────
   const handleClickMicButton = useCallback(() => {
-    if (isMicRecording) {
+    if (isMicRecording || pendingStartRef.current) {
       micEnabledByUser.current = false;
       stopRecognition();
     } else {
@@ -302,7 +283,7 @@ export const MessageInputContainer = ({
     onChatProcessStart(text);
   }, [userMessage, isMicRecording, stopRecognition, onChatProcessStart]);
 
-  // ── Clear display when AI starts processing ────────────────────────────────
+  // ── Clear input when AI starts processing ─────────────────────────────────
   useEffect(() => {
     if (isChatProcessing) {
       setUserMessage("");

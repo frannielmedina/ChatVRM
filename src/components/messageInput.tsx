@@ -26,14 +26,18 @@ export const MessageInput = ({
           <div className="grid grid-flow-col gap-[8px] grid-cols-[min-content_1fr_min-content]">
             <IconButton
               iconName="24/Microphone"
-              className="bg-secondary hover:bg-secondary-hover active:bg-secondary-press disabled:bg-secondary-disabled"
-              isProcessing={isMicRecording}
+              className={
+                isMicRecording
+                  ? "bg-red-500 hover:bg-red-600 active:bg-red-700 disabled:bg-red-300 animate-pulse"
+                  : "bg-secondary hover:bg-secondary-hover active:bg-secondary-press disabled:bg-secondary-disabled"
+              }
+              isProcessing={false}
               disabled={isChatProcessing}
               onClick={onClickMicButton}
             />
             <input
               type="text"
-              placeholder="Type a message..."
+              placeholder={isMicRecording ? "Listening…" : "Type a message..."}
               onChange={onChangeUserMessage}
               disabled={isChatProcessing}
               className="bg-surface1 hover:bg-surface1-hover focus:bg-surface1 disabled:bg-surface1-disabled disabled:text-primary-disabled rounded-16 w-full px-16 text-text-primary typography-16 font-bold"
