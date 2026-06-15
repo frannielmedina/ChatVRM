@@ -15,6 +15,7 @@ import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 import { CaptionStyle } from "./captionSettings";
 import { VisionConfig } from "@/features/vision/visionConfig";
 import { VisionStatus } from "@/features/vision/useVision";
+import { DiscordConfig } from "@/features/discord/discordConfig";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -34,6 +35,9 @@ type Props = {
   visionLastCaptureTime: Date | null;
   visionSecondsUntilNext: number;
   visionError: string | null;
+  discordConfig: DiscordConfig;
+  discordConnected: boolean;
+  discordConnectionError: string | null;
   uiVisible: boolean;
   onChangeSystemPrompt: (systemPrompt: string) => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
@@ -52,6 +56,9 @@ type Props = {
   onChangeCaptionStyle: (style: CaptionStyle) => void;
   onChangeVisionConfig: (config: VisionConfig) => void;
   onVisionCaptureNow: () => void;
+  onChangeDiscordConfig: (config: DiscordConfig) => void;
+  onDiscordConnect: () => void;
+  onDiscordDisconnect: () => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
   onSaveSettings: () => void;
   onVrmFileLoad?: (url: string) => void;
@@ -75,6 +82,9 @@ export const Menu = ({
   visionLastCaptureTime,
   visionSecondsUntilNext,
   visionError,
+  discordConfig,
+  discordConnected,
+  discordConnectionError,
   uiVisible,
   onChangeSystemPrompt,
   onChangeAiConfig,
@@ -93,6 +103,9 @@ export const Menu = ({
   onChangeCaptionStyle,
   onChangeVisionConfig,
   onVisionCaptureNow,
+  onChangeDiscordConfig,
+  onDiscordConnect,
+  onDiscordDisconnect,
   onLoadSettings,
   onSaveSettings,
   onVrmFileLoad,
@@ -251,6 +264,9 @@ export const Menu = ({
           visionLastCaptureTime={visionLastCaptureTime}
           visionSecondsUntilNext={visionSecondsUntilNext}
           visionError={visionError}
+          discordConfig={discordConfig}
+          discordConnected={discordConnected}
+          discordConnectionError={discordConnectionError}
           isMobile={isMobile}
           onClickClose={() => setShowSettings(false)}
           onSaveAndClose={handleSaveAndClose}
@@ -272,6 +288,9 @@ export const Menu = ({
           onChangeCaptionStyle={onChangeCaptionStyle}
           onChangeVisionConfig={onChangeVisionConfig}
           onVisionCaptureNow={onVisionCaptureNow}
+          onChangeDiscordConfig={onChangeDiscordConfig}
+          onDiscordConnect={onDiscordConnect}
+          onDiscordDisconnect={onDiscordDisconnect}
           onLoadSettings={onLoadSettings}
         />
       )}
