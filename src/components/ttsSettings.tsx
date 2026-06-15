@@ -48,7 +48,6 @@ export const TTSSettings = ({
     [ttsConfig, onChangeTTSConfig]
   );
 
-  // Ensure the keys array is always MAX_KEYS long
   const normaliseKeys = (keys?: string[]): string[] => {
     const base = Array.isArray(keys) ? [...keys] : [];
     while (base.length < MAX_KEYS) base.push("");
@@ -57,13 +56,11 @@ export const TTSSettings = ({
 
   const currentKeys = normaliseKeys(ttsConfig.elevenLabsKeys);
 
-  /** Update a single slot in the rotation pool.
-   *  Slot 0 is the primary key and is kept in sync with elevenLabsKey. */
   const handleKeyChange = (index: number, value: string) => {
     const next = [...currentKeys];
     next[index] = value;
     const updates: Partial<TTSConfig> = { elevenLabsKeys: next };
-    if (index === 0) updates.elevenLabsKey = value; // keep legacy field in sync
+    if (index === 0) updates.elevenLabsKey = value;
     update(updates);
   };
 
@@ -73,15 +70,32 @@ export const TTSSettings = ({
 
   const activeKeyCount = currentKeys.filter(Boolean).length;
 
+  // Providers to show in the grid — koeiromap is excluded from selection
+  // but shown as a disabled "discontinued" tile if it's the current provider
+  // (so users who had it saved can see why it no longer works).
+  const availableProviders = TTS_PROVIDERS.filter((p) => p.value !== "koeiromap");
+
   return (
     <div className="my-40">
       <div className="my-16 typography-20 font-bold">Voice / TTS</div>
+
+      {/* ── Koeiromap discontinued banner (only shown if still selected) ── */}
+      {ttsConfig.provider === "koeiromap" && (
+        <div className="mb-16 p-14 bg-red-500/10 border border-red-500/30 rounded-8 text-sm text-red-700 leading-relaxed">
+          <div className="font-bold mb-4">⚠️ Koeiromap is no longer available</div>
+          <p>
+            Rinna Co., Ltd. discontinued all services in 2024, including the Koeiromap
+            TTS API. The virtual YouTuber Rinna also retired and closed all her social
+            media accounts. Please switch to another TTS provider below.
+          </p>
+        </div>
+      )}
 
       {/* Provider selector */}
       <div className="my-8">
         <div className="font-bold mb-4">TTS Provider</div>
         <div className="grid grid-cols-2 gap-2">
-          {TTS_PROVIDERS.map((p) => (
+          {availableProviders.map((p) => (
             <button
               key={p.value}
               onClick={() => update({ provider: p.value })}
@@ -95,50 +109,23 @@ export const TTSSettings = ({
               <div className="text-xs text-text-primary/60 mt-1">{p.description}</div>
             </button>
           ))}
+
+          {/* Koeiromap — always shown as a disabled discontinued tile */}
+          <button
+            disabled
+            className="p-8 rounded-8 border-2 border-surface3 bg-surface1 text-left opacity-50 cursor-not-allowed relative"
+          >
+            <div className="font-bold text-sm line-through text-text-primary/40">Koeiromap</div>
+            <div className="text-xs text-red-500 mt-1 font-bold">🚫 Discontinued — service shut down</div>
+          </button>
         </div>
       </div>
-
-      {/* ── Koeiromap ─────────────────────────────────────────────────────── */}
-      {ttsConfig.provider === "koeiromap" && (
-        <div className="my-16 p-16 bg-surface1 rounded-8">
-          <div className="font-bold mb-8">Koeiromap API Key</div>
-          <input
-            className="text-ellipsis px-16 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8 mb-8"
-            type="text"
-            placeholder="Your Koeiromap API key"
-            value={ttsConfig.koeiromapKey || ""}
-            onChange={(e) => update({ koeiromapKey: e.target.value })}
-          />
-          <div className="text-sm text-text-primary/60">
-            Get your key at{" "}
-            <Link
-              url="https://developers.rinna.co.jp/product/#product=koeiromap-free"
-              label="rinna Developers"
-            />
-          </div>
-          <div className="mt-16 font-bold mb-8">Voice Parameters</div>
-          <div className="select-none text-sm">X: {koeiroParam.speakerX.toFixed(2)}</div>
-          <input
-            type="range" min={-10} max={10} step={0.001}
-            value={koeiroParam.speakerX}
-            className="mt-4 mb-12 input-range"
-            onChange={(e) => onChangeKoeiroParam(Number(e.target.value), koeiroParam.speakerY)}
-          />
-          <div className="select-none text-sm">Y: {koeiroParam.speakerY.toFixed(2)}</div>
-          <input
-            type="range" min={-10} max={10} step={0.001}
-            value={koeiroParam.speakerY}
-            className="mt-4 mb-12 input-range"
-            onChange={(e) => onChangeKoeiroParam(koeiroParam.speakerX, Number(e.target.value))}
-          />
-        </div>
-      )}
 
       {/* ── ElevenLabs ────────────────────────────────────────────────────── */}
       {ttsConfig.provider === "elevenlabs" && (
         <div className="my-16 p-16 bg-surface1 rounded-8 flex flex-col gap-16">
 
-          {/* ── Model selector ─────────────────────────────────────────── */}
+          {/* Model selector */}
           <div>
             <div className="font-bold mb-8">Model</div>
             <div className="flex flex-col gap-6">
@@ -157,9 +144,7 @@ export const TTSSettings = ({
                   >
                     <div className="flex items-center justify-between gap-8">
                       <span className="font-bold text-sm">{m.label}</span>
-                      <span
-                        className={`text-xs px-8 py-2 rounded-oval border font-bold ${badge.className}`}
-                      >
+                      <span className={`text-xs px-8 py-2 rounded-oval border font-bold ${badge.className}`}>
                         {badge.label}
                       </span>
                     </div>
@@ -169,7 +154,6 @@ export const TTSSettings = ({
               })}
             </div>
 
-            {/* Credit comparison hint */}
             <div className="mt-10 p-10 bg-blue-500/10 border border-blue-500/20 rounded-8 text-xs text-blue-700 leading-relaxed">
               <strong>Credit guide:</strong> Flash 2.5 costs roughly <strong>~60% less</strong> than
               Turbo 2.5 per character. For conversational chat, Flash 2.5 sounds excellent and will
@@ -178,7 +162,7 @@ export const TTSSettings = ({
             </div>
           </div>
 
-          {/* ── API key rotation pool ──────────────────────────────────── */}
+          {/* API key rotation pool */}
           <div>
             <div className="font-bold mb-4 flex items-center gap-8">
               <span>API Keys</span>
@@ -211,7 +195,6 @@ export const TTSSettings = ({
                       value={key}
                       onChange={(e) => handleKeyChange(index, e.target.value)}
                     />
-                    {/* Status indicator */}
                     <span
                       className="absolute right-10 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full"
                       style={{ background: key.trim() ? "#22c55e" : "#d1d5db" }}
@@ -240,7 +223,7 @@ export const TTSSettings = ({
             </div>
           </div>
 
-          {/* ── Voice selector ─────────────────────────────────────────── */}
+          {/* Voice selector */}
           <div>
             <div className="font-bold mb-8">Voice</div>
             <select
