@@ -47,6 +47,13 @@ import { CaptionStyle, DEFAULT_CAPTION_STYLE } from "@/components/captionSetting
 import { VisionConfig, DEFAULT_VISION_CONFIG } from "@/features/vision/visionConfig";
 import { useVision } from "@/features/vision/useVision";
 import { buildUrl } from "@/utils/buildUrl";
+import {
+  DiscordConfig,
+  DEFAULT_DISCORD_CONFIG,
+} from "@/features/discord/discordConfig";
+import { discordClient } from "@/features/discord/discordClient";
+import { DiscordOverlay } from "@/components/discordOverlay";
+import { DiscordMessage, DiscordVoiceEvent } from "@/features/discord/discordConfig";
 
 // VRM model localStorage key
 const VRM_URL_KEY = "chatVRM_lastVrmUrl";
@@ -89,6 +96,13 @@ export default function Home() {
   const [twitchConnected, setTwitchConnected] = useState(false);
   const [twitchMessages, setTwitchMessages] = useState<TwitchMessage[]>([]);
 
+  // Discord
+  const [discordConfig, setDiscordConfig] = useState<DiscordConfig>(DEFAULT_DISCORD_CONFIG);
+  const [discordConnected, setDiscordConnected] = useState(false);
+  const [discordConnectionError, setDiscordConnectionError] = useState<string | null>(null);
+  const [discordMessages, setDiscordMessages] = useState<DiscordMessage[]>([]);
+  const [discordVoiceEvents, setDiscordVoiceEvents] = useState<DiscordVoiceEvent[]>([]);
+
   // Screen Share
   const [screenShareConfig, setScreenShareConfig] = useState<ScreenShareConfig>(
     DEFAULT_SCREEN_SHARE_CONFIG
@@ -104,6 +118,11 @@ export default function Home() {
   const twitchUnsubRef = useRef<(() => void) | null>(null);
   const twitchCmdUnsubRef = useRef<(() => void) | null>(null);
 
+  // Discord unsub refs
+  const discordMsgUnsubRef = useRef<(() => void) | null>(null);
+  const discordVoiceUnsubRef = useRef<(() => void) | null>(null);
+  const discordStatusUnsubRef = useRef<(() => void) | null>(null);
+
   // ── Persist / restore settings ─────────────────────────────────────────────
   useEffect(() => {
     const saved = window.localStorage.getItem("chatVRMParams");
@@ -117,6 +136,8 @@ export default function Home() {
         if (params.ttsConfig) setTtsConfig({ ...DEFAULT_TTS_CONFIG, ...params.ttsConfig });
         if (params.twitchConfig)
           setTwitchConfig({ ...DEFAULT_TWITCH_CONFIG, ...params.twitchConfig });
+        if (params.discordConfig)
+          setDiscordConfig({ ...DEFAULT_DISCORD_CONFIG, ...params.discordConfig });
         if (params.backgroundConfig)
           setBackgroundConfig({ ...DEFAULT_BACKGROUND_CONFIG, ...params.backgroundConfig });
         if (params.captionStyle)
@@ -138,13 +159,14 @@ export default function Home() {
           aiConfig,
           ttsConfig,
           twitchConfig,
+          discordConfig,
           backgroundConfig,
           captionStyle,
           visionConfig,
         })
       )
     );
-  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle, visionConfig]);
+  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig]);
 
   // ── VRM model persistence ──────────────────────────────────────────────────
   const [viewerReady, setViewerReady] = useState(false);
@@ -191,12 +213,13 @@ export default function Home() {
         aiConfig,
         ttsConfig,
         twitchConfig,
+        discordConfig,
         backgroundConfig,
         captionStyle,
         visionConfig,
       })
     );
-  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, backgroundConfig, captionStyle, visionConfig]);
+  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig]);
 
   const handleResetCommand = useCallback(() => {
     setChatLog([]);
@@ -284,8 +307,6 @@ export default function Home() {
 
       const reader = stream.getReader();
 
-      // ── Collect the FULL streamed response before doing anything ──────────
-      // This ensures TTS gets the complete text at once, not word-by-word.
       let fullResponse = "";
       try {
         while (true) {
@@ -299,17 +320,12 @@ export default function Home() {
         reader.releaseLock();
       }
 
-      // ── Post-process the complete response ────────────────────────────────
       const cleanedResponse = stripAsteriskActions(fullResponse);
       if (!cleanedResponse.trim()) {
         setChatProcessing(false);
         return;
       }
 
-      // ── Build a single screenplay from the full response ──────────────────
-      // textsToScreenplay handles emotion/pose tag extraction from the full text.
-      // We pass the entire response as one entry so the expression is applied
-      // to the whole speech, not just the first sentence.
       const aiTalks = textsToScreenplay([cleanedResponse], koeiroParam);
 
       if (aiTalks.length === 0) {
@@ -317,21 +333,14 @@ export default function Home() {
         return;
       }
 
-      // The display text for the caption — strip leading tags for cleaner display
-      // but keep the full expression tag so AssistantText can render it.
       const displayText = cleanedResponse;
 
-      // ── Speak the full response as ONE unit ───────────────────────────────
-      // onStart: fires when audio is ready & begins playing → show caption now
-      // onComplete: fires when audio finishes → update chat log & clear processing
       await new Promise<void>((resolve) => {
         handleSpeakAi(
           aiTalks[0],
-          // onStart — called right when audio begins playing
           () => {
             setAssistantMessage(displayText);
           },
-          // onComplete — called when audio finishes
           () => {
             const displayResponse = stripAsteriskActions(cleanedResponse);
             setChatLog([
@@ -438,6 +447,61 @@ export default function Home() {
     };
   }, []);
 
+  // ── Discord ────────────────────────────────────────────────────────────────
+  const handleDiscordConnect = useCallback(() => {
+    // Clean up previous subscriptions
+    discordMsgUnsubRef.current?.();
+    discordVoiceUnsubRef.current?.();
+    discordStatusUnsubRef.current?.();
+
+    setDiscordConnectionError(null);
+
+    const statusUnsub = discordClient.onStatus((connected, error) => {
+      setDiscordConnected(connected);
+      if (error) setDiscordConnectionError(error);
+      else setDiscordConnectionError(null);
+    });
+
+    const msgUnsub = discordClient.onMessage((msg) => {
+      setDiscordMessages((prev) => [...prev.slice(-49), msg]);
+
+      if (discordConfig.respondToMessages) {
+        const prompt = `[Discord] ${msg.displayName}: ${msg.content}`;
+        sendChatRef.current(prompt);
+      }
+    });
+
+    const voiceUnsub = discordClient.onVoiceEvent((event) => {
+      setDiscordVoiceEvents((prev) => [...prev.slice(-19), event]);
+    });
+
+    discordStatusUnsubRef.current = statusUnsub;
+    discordMsgUnsubRef.current = msgUnsub;
+    discordVoiceUnsubRef.current = voiceUnsub;
+
+    discordClient.connect(discordConfig);
+  }, [discordConfig]);
+
+  const handleDiscordDisconnect = useCallback(() => {
+    discordClient.disconnect();
+    setDiscordConnected(false);
+    setDiscordConnectionError(null);
+    discordMsgUnsubRef.current?.();
+    discordVoiceUnsubRef.current?.();
+    discordStatusUnsubRef.current?.();
+    discordMsgUnsubRef.current = null;
+    discordVoiceUnsubRef.current = null;
+    discordStatusUnsubRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      discordMsgUnsubRef.current?.();
+      discordVoiceUnsubRef.current?.();
+      discordStatusUnsubRef.current?.();
+    };
+  }, []);
+
   // ── Screen Share ───────────────────────────────────────────────────────────
   const handleScreenShareStop = useCallback(() => {
     stopScreenShare();
@@ -520,6 +584,9 @@ export default function Home() {
         visionLastCaptureTime={visionLastCaptureTime}
         visionSecondsUntilNext={visionSecondsUntilNext}
         visionError={visionError}
+        discordConfig={discordConfig}
+        discordConnected={discordConnected}
+        discordConnectionError={discordConnectionError}
         uiVisible={uiVisible}
         onChangeAiConfig={setAiConfig}
         onChangeSystemPrompt={setSystemPrompt}
@@ -538,6 +605,9 @@ export default function Home() {
         onChangeCaptionStyle={setCaptionStyle}
         onChangeVisionConfig={setVisionConfig}
         onVisionCaptureNow={visionCaptureNow}
+        onChangeDiscordConfig={setDiscordConfig}
+        onDiscordConnect={handleDiscordConnect}
+        onDiscordDisconnect={handleDiscordDisconnect}
         onLoadSettings={handleLoadSettings}
         onSaveSettings={saveSettingsNow}
         onVrmFileLoad={handleVrmFileLoad}
@@ -556,6 +626,16 @@ export default function Home() {
           messages={twitchMessages}
           isConnected={twitchConnected}
           channel={twitchConfig.channel}
+        />
+      )}
+
+      {discordConfig.showOverlay && (
+        <DiscordOverlay
+          messages={discordMessages}
+          voiceEvents={discordVoiceEvents}
+          isConnected={discordConnected}
+          channelName={discordConfig.channelId}
+          showOverlay={discordConfig.showOverlay}
         />
       )}
     </div>
