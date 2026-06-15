@@ -43,7 +43,7 @@ const VdoNinjaGuide = () => {
           <div className="font-bold mb-4">Step 1 — Open VDO.Ninja Sender (You)</div>
           <p className="text-text-primary/60 mb-8 leading-relaxed">
             Open this URL in a <strong>new browser tab</strong>. Choose{" "}
-            <em>"Share Screen"</em> and select the ChatVRM browser tab. This streams
+            <em>&quot;Share Screen&quot;</em> and select the ChatVRM browser tab. This streams
             your VTuber over WebRTC peer-to-peer.
           </p>
           <div className="flex items-center gap-8 bg-surface3 rounded-8 p-10">
