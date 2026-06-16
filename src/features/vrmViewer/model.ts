@@ -4,7 +4,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import { VRMAnimation } from "../../lib/VRMAnimation/VRMAnimation";
 import { VRMLookAtSmootherLoaderPlugin } from "@/lib/VRMLookAtSmootherLoaderPlugin/VRMLookAtSmootherLoaderPlugin";
 import { LipSync } from "../lipSync/lipSync";
-import { EmoteController } from "../emoteController/emoteController";
+import { ExpressionController as EmoteController } from "../emoteController/expressionController";
 import { Screenplay } from "../messages/messages";
 import {
   playPose,
