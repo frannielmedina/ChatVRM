@@ -30,6 +30,7 @@ const SKIP_BONES_BOW = new Set([
 ]);
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
 type QuatArray = [number, number, number, number];
 
 interface LegacyPoseFile {
@@ -75,33 +76,26 @@ function isVrm0(vrm: VRM): boolean {
   return true;
 }
 
-// ── Quaternion conversion for VRM0 normalized bone space ──────────────────────
+// ── VRM 0.0 quaternion correction ─────────────────────────────────────────────
 //
-// @pixiv/three-vrm v1 exposes TWO bone spaces:
-//   - Raw bone space  (humanoid.getRawBoneNode)   — local to the GLTF node
-//   - Normalized space (humanoid.getNormalizedBoneNode) — always T-pose aligned,
-//     same convention as VRM 1.0 regardless of spec version.
+// VRM 0.0 uses a right-handed coordinate system where the model faces +Z,
+// but the normalized bone space in @pixiv/three-vrm v1 for VRM0 models
+// still needs X and Z axes negated to match the VRM 1.0 pose convention.
 //
-// We write to normalized nodes, so the pose quaternions from our JSON files
-// (which were authored for VRM 1.0 normalized space) should work directly
-// WITHOUT any manual coordinate flip — three-vrm handles all VRM0 internals.
+// The pose JSON files are authored for VRM 1.0 normalized space.
+// For VRM 0.0, after rotateVRM0() is applied to the scene, the normalized
+// bones still have inverted X/Z compared to what the pose files expect.
 //
-// The only exception is that pose JSON files authored specifically for VRM0
-// raw space need the old flip.  Our pose files were authored for VRM1 normalized
-// space, so we apply NO flip for either version.
-//
-// If poses still look wrong, it means the JSON files were authored in a
-// different coordinate convention. In that case we need per-axis corrections
-// discovered empirically, not a blanket formula.
-
-function makeQuat(x: number, y: number, z: number, w: number): THREE.Quaternion {
-  return new THREE.Quaternion(x, y, z, w);
+// Fix: negate X and Z components of the quaternion (equivalent to negating
+// the rotation axis in the XZ plane, which corrects the mirroring).
+function correctQuatForVrm0(q: THREE.Quaternion): THREE.Quaternion {
+  return new THREE.Quaternion(-q.x, q.y, -q.z, q.w);
 }
 
-// ── Bone override map ─────────────────────────────────────────────────────────
+// ── Bone override map (stores immutable target quaternions) ───────────────────
 type BoneOverrideMap = Map<string, THREE.Quaternion>;
 
-function buildOverrideMap(pose: PoseFile, tag: string): BoneOverrideMap {
+function buildOverrideMap(pose: PoseFile, tag: string, vrm0: boolean): BoneOverrideMap {
   const map: BoneOverrideMap = new Map();
   const skipSet = tag === "bow" ? SKIP_BONES_BOW : SKIP_BONES;
 
@@ -109,14 +103,16 @@ function buildOverrideMap(pose: PoseFile, tag: string): BoneOverrideMap {
     for (const [boneName, boneData] of Object.entries((pose as LegacyPoseFile).pose)) {
       if (skipSet.has(boneName)) continue;
       const [x, y, z, w] = boneData.rotation;
-      map.set(boneName, makeQuat(x, y, z, w));
+      const q = new THREE.Quaternion(x, y, z, w);
+      map.set(boneName, vrm0 ? correctQuatForVrm0(q) : q);
     }
   } else {
     for (const [boneName, boneData] of Object.entries((pose as NewPoseFile).bones)) {
       if (skipSet.has(boneName)) continue;
       if (boneData.rotation?.values?.length) {
         const [x, y, z, w] = boneData.rotation.values[0];
-        map.set(boneName, makeQuat(x, y, z, w));
+        const q = new THREE.Quaternion(x, y, z, w);
+        map.set(boneName, vrm0 ? correctQuatForVrm0(q) : q);
       }
     }
   }
@@ -125,14 +121,21 @@ function buildOverrideMap(pose: PoseFile, tag: string): BoneOverrideMap {
 }
 
 // ── Global pose state ─────────────────────────────────────────────────────────
+
+// Static poses: a single override map applied at full weight.
 let _activePoseOverrides: BoneOverrideMap | null = null;
+
+// Cycling poses (wave / clap): two maps + a continuously driven lerp factor.
 let _cycleFrom: BoneOverrideMap | null = null;
 let _cycleTo:   BoneOverrideMap | null = null;
-let _cycleT     = 0;
-let _cycleDir   = 1;
+let _cycleT     = 0;   // 0 = _cycleFrom, 1 = _cycleTo
+let _cycleDir   = 1;   // oscillates: +1 forward, -1 backward
 let _isCycling  = false;
-let _poseBlend  = 0;
 
+// Master blend: 0 = no override, 1 = full pose (driven by fade in/out)
+let _poseBlend = 0;
+
+// Timers
 let _cycleTimer:   ReturnType<typeof setInterval> | null = null;
 let _restoreTimer: ReturnType<typeof setTimeout>  | null = null;
 let _fadeTimer:    ReturnType<typeof setInterval> | null = null;
@@ -155,6 +158,8 @@ function cancelFadeTimer() {
 }
 
 // ── Per-frame override application ────────────────────────────────────────────
+// Called from Model.update() AFTER mixer.update() and emoteController.update().
+
 const _tmpA = new THREE.Quaternion();
 const _tmpB = new THREE.Quaternion();
 
@@ -166,7 +171,7 @@ export function applyPoseOverride(vrm: VRM): void {
 
   if (_isCycling && _cycleFrom && _cycleTo) {
     const innerT = _cycleT;
-    const bones  = new Set([..._cycleFrom.keys(), ..._cycleTo.keys()]);
+    const bones = new Set([..._cycleFrom.keys(), ..._cycleTo.keys()]);
 
     bones.forEach((boneName) => {
       const node = humanoid.getNormalizedBoneNode(boneName as any);
@@ -174,6 +179,7 @@ export function applyPoseOverride(vrm: VRM): void {
 
       const quatFrom = _cycleFrom!.get(boneName);
       const quatTo   = _cycleTo!.get(boneName);
+
       let targetQuat: THREE.Quaternion;
 
       if (quatFrom && quatTo) {
@@ -206,13 +212,17 @@ export function applyPoseOverride(vrm: VRM): void {
 }
 
 // ── Fade helpers ──────────────────────────────────────────────────────────────
+
 function startFadeIn(onDone?: () => void) {
   cancelFadeTimer();
   let step = 0;
   _fadeTimer = setInterval(() => {
     step++;
     _poseBlend = Math.min(1, step / FADE_STEPS);
-    if (step >= FADE_STEPS) { cancelFadeTimer(); onDone?.(); }
+    if (step >= FADE_STEPS) {
+      cancelFadeTimer();
+      onDone?.();
+    }
   }, FADE_IN_STEP_MS);
 }
 
@@ -225,16 +235,17 @@ function startFadeOut(onDone?: () => void) {
     if (step >= FADE_STEPS) {
       cancelFadeTimer();
       _activePoseOverrides = null;
-      _cycleFrom = null;
-      _cycleTo   = null;
-      _isCycling = false;
-      _poseBlend = 0;
+      _cycleFrom  = null;
+      _cycleTo    = null;
+      _isCycling  = false;
+      _poseBlend  = 0;
       onDone?.();
     }
   }, FADE_OUT_STEP_MS);
 }
 
 // ── Cycling oscillator ────────────────────────────────────────────────────────
+
 function startCycleOscillator() {
   if (_cycleTimer) { clearInterval(_cycleTimer); _cycleTimer = null; }
   const step = CYCLE_TICK_MS / CYCLE_SWING_MS;
@@ -242,12 +253,18 @@ function startCycleOscillator() {
   _cycleDir = 1;
   _cycleTimer = setInterval(() => {
     _cycleT += _cycleDir * step;
-    if (_cycleT >= 1) { _cycleT = 1; _cycleDir = -1; }
-    else if (_cycleT <= 0) { _cycleT = 0; _cycleDir = 1; }
+    if (_cycleT >= 1) {
+      _cycleT   = 1;
+      _cycleDir = -1;
+    } else if (_cycleT <= 0) {
+      _cycleT   = 0;
+      _cycleDir = 1;
+    }
   }, CYCLE_TICK_MS);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+
 export async function playPose(vrm: VRM, tag: string): Promise<void> {
   const files = POSE_TAG_MAP[tag];
   if (!files) return;
@@ -255,24 +272,32 @@ export async function playPose(vrm: VRM, tag: string): Promise<void> {
   const poses = (await Promise.all(files.map(fetchPose))).filter(Boolean) as PoseFile[];
   if (poses.length === 0) return;
 
+  const vrm0 = isVrm0(vrm);
+
   cancelAllTimers();
 
   if (poses.length === 1) {
+    // ── Static pose ──────────────────────────────────────────────────────────
     _isCycling           = false;
     _cycleFrom           = null;
     _cycleTo             = null;
-    _activePoseOverrides = buildOverrideMap(poses[0], tag);
+    _activePoseOverrides = buildOverrideMap(poses[0], tag, vrm0);
 
     startFadeIn(() => {
-      _restoreTimer = setTimeout(() => startFadeOut(), POSE_DURATION_MS);
+      _restoreTimer = setTimeout(() => {
+        startFadeOut();
+      }, POSE_DURATION_MS);
     });
+
   } else {
+    // ── Cycling pose (wave / clap) ────────────────────────────────────────────
     _isCycling           = true;
     _activePoseOverrides = null;
-    _cycleFrom           = buildOverrideMap(poses[0], tag);
-    _cycleTo             = buildOverrideMap(poses[1], tag);
+    _cycleFrom           = buildOverrideMap(poses[0], tag, vrm0);
+    _cycleTo             = buildOverrideMap(poses[1], tag, vrm0);
 
     startCycleOscillator();
+
     startFadeIn(() => {
       _restoreTimer = setTimeout(() => {
         cancelAllTimers();
@@ -295,4 +320,8 @@ export function cancelPose(_vrm?: VRM) {
   }
 }
 
-export function registerPoseMixerCallbacks(_onStart: () => void, _onEnd: () => void) {}
+// No-op — kept for import compatibility
+export function registerPoseMixerCallbacks(
+  _onStart: () => void,
+  _onEnd: () => void
+) {}
