@@ -30,7 +30,6 @@ const SKIP_BONES_BOW = new Set([
 ]);
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
 type QuatArray = [number, number, number, number];
 
 interface LegacyPoseFile {
@@ -67,56 +66,44 @@ async function fetchPose(path: string): Promise<PoseFile | null> {
   }
 }
 
+// ── VRM version detection ─────────────────────────────────────────────────────
+function isVrm0(vrm: VRM): boolean {
+  const meta = vrm.meta as any;
+  if (meta?.metaVersion !== undefined) return String(meta.metaVersion) === "0";
+  if (meta?.specVersion !== undefined) return false;
+  if (meta?.version !== undefined) return true;
+  return true;
+}
+
+// ── Quaternion conversion for VRM0 normalized bone space ──────────────────────
+//
+// @pixiv/three-vrm v1 exposes TWO bone spaces:
+//   - Raw bone space  (humanoid.getRawBoneNode)   — local to the GLTF node
+//   - Normalized space (humanoid.getNormalizedBoneNode) — always T-pose aligned,
+//     same convention as VRM 1.0 regardless of spec version.
+//
+// We write to normalized nodes, so the pose quaternions from our JSON files
+// (which were authored for VRM 1.0 normalized space) should work directly
+// WITHOUT any manual coordinate flip — three-vrm handles all VRM0 internals.
+//
+// The only exception is that pose JSON files authored specifically for VRM0
+// raw space need the old flip.  Our pose files were authored for VRM1 normalized
+// space, so we apply NO flip for either version.
+//
+// If poses still look wrong, it means the JSON files were authored in a
+// different coordinate convention. In that case we need per-axis corrections
+// discovered empirically, not a blanket formula.
+
+function makeQuat(x: number, y: number, z: number, w: number): THREE.Quaternion {
+  return new THREE.Quaternion(x, y, z, w);
+}
+
 // ── Bone override map ─────────────────────────────────────────────────────────
 type BoneOverrideMap = Map<string, THREE.Quaternion>;
 
-/**
- * Detect whether this VRM went through VRMUtils.rotateVRM0().
- *
- * rotateVRM0 is called for every VRM 0.x model in model.ts.
- * @pixiv/three-vrm v1.x exposes the spec version on vrm.meta.metaVersion:
- *   "0"  → VRM 0.x  (rotateVRM0 WAS applied)
- *   "1"  → VRM 1.0  (rotateVRM0 was NOT applied)
- *
- * Fallbacks for edge cases:
- *   - If metaVersion is absent but meta has a "specVersion" field → VRM 1.0
- *   - If meta has a "version" string (VRM0 metadata field) → VRM 0.x
- *   - Otherwise assume VRM 0.x (the common case for community models)
- */
-function detectIsVrm0(vrm: VRM): boolean {
-  const meta = vrm.meta as any;
-  if (meta?.metaVersion !== undefined) {
-    return String(meta.metaVersion) === "0";
-  }
-  if (meta?.specVersion !== undefined) return false; // VRM 1.0
-  if (meta?.version !== undefined)     return true;  // VRM 0.x
-  return true; // safe default
-}
-
-/**
- * Conjugate a pose quaternion to account for the 180° Y rotation applied by
- * VRMUtils.rotateVRM0.
- *
- * rotateVRM0 sets scene.rotation.y = π, equivalent to the quaternion R = (0, 1, 0, 0).
- * Applying R to a local bone quaternion q gives:  q' = R * q * R⁻¹
- * For R = 180° Y: R⁻¹ = R (self-inverse), so q' = R * q * R
- *
- * Expanding the quaternion product for R = (0,1,0,0):
- *   x' = -x,  y' = y,  z' = -z,  w' = w
- *
- * This is correct for the normalized humanoid bone local space used by
- * getNormalizedBoneNode / applyPoseOverride.
- */
-function applyVrm0CoordFix(x: number, y: number, z: number, w: number): THREE.Quaternion {
-  return new THREE.Quaternion(-x, y, -z, w);
-}
-
-function buildOverrideMap(pose: PoseFile, tag: string, isVrm0: boolean): BoneOverrideMap {
+function buildOverrideMap(pose: PoseFile, tag: string): BoneOverrideMap {
   const map: BoneOverrideMap = new Map();
   const skipSet = tag === "bow" ? SKIP_BONES_BOW : SKIP_BONES;
-
-  const makeQuat = (x: number, y: number, z: number, w: number) =>
-    isVrm0 ? applyVrm0CoordFix(x, y, z, w) : new THREE.Quaternion(x, y, z, w);
 
   if ("pose" in pose) {
     for (const [boneName, boneData] of Object.entries((pose as LegacyPoseFile).pose)) {
@@ -138,16 +125,13 @@ function buildOverrideMap(pose: PoseFile, tag: string, isVrm0: boolean): BoneOve
 }
 
 // ── Global pose state ─────────────────────────────────────────────────────────
-
 let _activePoseOverrides: BoneOverrideMap | null = null;
-
 let _cycleFrom: BoneOverrideMap | null = null;
 let _cycleTo:   BoneOverrideMap | null = null;
 let _cycleT     = 0;
 let _cycleDir   = 1;
 let _isCycling  = false;
-
-let _poseBlend = 0;
+let _poseBlend  = 0;
 
 let _cycleTimer:   ReturnType<typeof setInterval> | null = null;
 let _restoreTimer: ReturnType<typeof setTimeout>  | null = null;
@@ -171,7 +155,6 @@ function cancelFadeTimer() {
 }
 
 // ── Per-frame override application ────────────────────────────────────────────
-
 const _tmpA = new THREE.Quaternion();
 const _tmpB = new THREE.Quaternion();
 
@@ -183,7 +166,7 @@ export function applyPoseOverride(vrm: VRM): void {
 
   if (_isCycling && _cycleFrom && _cycleTo) {
     const innerT = _cycleT;
-    const bones = new Set([..._cycleFrom.keys(), ..._cycleTo.keys()]);
+    const bones  = new Set([..._cycleFrom.keys(), ..._cycleTo.keys()]);
 
     bones.forEach((boneName) => {
       const node = humanoid.getNormalizedBoneNode(boneName as any);
@@ -223,17 +206,13 @@ export function applyPoseOverride(vrm: VRM): void {
 }
 
 // ── Fade helpers ──────────────────────────────────────────────────────────────
-
 function startFadeIn(onDone?: () => void) {
   cancelFadeTimer();
   let step = 0;
   _fadeTimer = setInterval(() => {
     step++;
     _poseBlend = Math.min(1, step / FADE_STEPS);
-    if (step >= FADE_STEPS) {
-      cancelFadeTimer();
-      onDone?.();
-    }
+    if (step >= FADE_STEPS) { cancelFadeTimer(); onDone?.(); }
   }, FADE_IN_STEP_MS);
 }
 
@@ -246,17 +225,16 @@ function startFadeOut(onDone?: () => void) {
     if (step >= FADE_STEPS) {
       cancelFadeTimer();
       _activePoseOverrides = null;
-      _cycleFrom  = null;
-      _cycleTo    = null;
-      _isCycling  = false;
-      _poseBlend  = 0;
+      _cycleFrom = null;
+      _cycleTo   = null;
+      _isCycling = false;
+      _poseBlend = 0;
       onDone?.();
     }
   }, FADE_OUT_STEP_MS);
 }
 
 // ── Cycling oscillator ────────────────────────────────────────────────────────
-
 function startCycleOscillator() {
   if (_cycleTimer) { clearInterval(_cycleTimer); _cycleTimer = null; }
   const step = CYCLE_TICK_MS / CYCLE_SWING_MS;
@@ -270,7 +248,6 @@ function startCycleOscillator() {
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
-
 export async function playPose(vrm: VRM, tag: string): Promise<void> {
   const files = POSE_TAG_MAP[tag];
   if (!files) return;
@@ -278,30 +255,24 @@ export async function playPose(vrm: VRM, tag: string): Promise<void> {
   const poses = (await Promise.all(files.map(fetchPose))).filter(Boolean) as PoseFile[];
   if (poses.length === 0) return;
 
-  const isVrm0 = detectIsVrm0(vrm);
-
   cancelAllTimers();
 
   if (poses.length === 1) {
     _isCycling           = false;
     _cycleFrom           = null;
     _cycleTo             = null;
-    _activePoseOverrides = buildOverrideMap(poses[0], tag, isVrm0);
+    _activePoseOverrides = buildOverrideMap(poses[0], tag);
 
     startFadeIn(() => {
-      _restoreTimer = setTimeout(() => {
-        startFadeOut();
-      }, POSE_DURATION_MS);
+      _restoreTimer = setTimeout(() => startFadeOut(), POSE_DURATION_MS);
     });
-
   } else {
     _isCycling           = true;
     _activePoseOverrides = null;
-    _cycleFrom           = buildOverrideMap(poses[0], tag, isVrm0);
-    _cycleTo             = buildOverrideMap(poses[1], tag, isVrm0);
+    _cycleFrom           = buildOverrideMap(poses[0], tag);
+    _cycleTo             = buildOverrideMap(poses[1], tag);
 
     startCycleOscillator();
-
     startFadeIn(() => {
       _restoreTimer = setTimeout(() => {
         cancelAllTimers();
@@ -324,8 +295,4 @@ export function cancelPose(_vrm?: VRM) {
   }
 }
 
-// No-op — kept for import compatibility
-export function registerPoseMixerCallbacks(
-  _onStart: () => void,
-  _onEnd: () => void
-) {}
+export function registerPoseMixerCallbacks(_onStart: () => void, _onEnd: () => void) {}
