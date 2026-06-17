@@ -2,6 +2,7 @@ import { TalkStyle } from "../messages/messages";
 import { TTSConfig, ElevenLabsModel } from "./ttsConfig";
 import { reduceTalkStyle } from "@/utils/reduceTalkStyle";
 import { koeiromapFreeV1 } from "../koeiromap/koeiromap";
+import { stripEmojisForTTS } from "../messages/messages";
 
 // ── Koeiromap ─────────────────────────────────────────────────────────────────
 export async function synthesizeKoeiromap(
@@ -215,6 +216,8 @@ export async function synthesizeGPTSoVITS(
 }
 
 // ── Unified synthesizer ───────────────────────────────────────────────────────
+// stripEmojisForTTS is applied here as a final safety net regardless of which
+// provider is used — this catches any call path that bypasses textsToScreenplay.
 export async function synthesizeWithProvider(
   message: string,
   style: TalkStyle,
@@ -222,25 +225,28 @@ export async function synthesizeWithProvider(
   speakerY: number,
   config: TTSConfig
 ): Promise<ArrayBuffer> {
+  // Always strip emojis before sending to any TTS engine
+  const cleanMessage = stripEmojisForTTS(message);
+
   switch (config.provider) {
     case "koeiromap":
       return synthesizeKoeiromap(
-        message,
+        cleanMessage,
         speakerX,
         speakerY,
         style,
         config.koeiromapKey || ""
       );
     case "elevenlabs":
-      return synthesizeElevenLabsWithRotation(message, config);
+      return synthesizeElevenLabsWithRotation(cleanMessage, config);
     case "qwen-remote":
       if (!config.qwenRemoteUrl)
         throw new Error("Qwen Remote URL not configured");
-      return synthesizeQwenRemote(message, config.qwenRemoteUrl, config.qwenSpeaker);
+      return synthesizeQwenRemote(cleanMessage, config.qwenRemoteUrl, config.qwenSpeaker);
     case "gpt-sovits":
       if (!config.gptsovitsRemoteUrl)
         throw new Error("GPT-SoVITS Remote URL not configured");
-      return synthesizeGPTSoVITS(message, config.gptsovitsRemoteUrl);
+      return synthesizeGPTSoVITS(cleanMessage, config.gptsovitsRemoteUrl);
     default:
       throw new Error(`Unknown TTS provider: ${config.provider}`);
   }
