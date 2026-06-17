@@ -41,6 +41,33 @@ function stripAsteriskActions(text: string): string {
   return clean;
 }
 
+// ── Emoji stripper ────────────────────────────────────────────────────────────
+// Removes all emoji and pictographic characters so TTS engines never attempt
+// to vocalise them (which can cause garbled output, robotic speech, or audio
+// glitches with ElevenLabs, Qwen TTS, GPT-SoVITS, etc.).
+//
+// Captions and the chat log display the ORIGINAL text with emojis preserved —
+// only the message sent to the TTS audio pipeline is stripped.
+export function stripEmojisForTTS(text: string): string {
+  let clean = text
+    // Extended pictographic covers virtually all modern emoji (🐾🌸😻🤣❤️ etc.)
+    // The optional variation selector \uFE0F and combining enclosing keycap \u20E3
+    // are consumed in the same pass to avoid leaving orphan characters behind.
+    .replace(/\p{Extended_Pictographic}[\uFE0F\u20E3]?/gu, "")
+    // Regional indicator symbols — flag emoji come in pairs (e.g. 🇺🇸)
+    .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, "")
+    // Variation selectors that may linger after removing the base character
+    .replace(/[\uFE00-\uFE0F]/g, "")
+    // Zero-width joiner used to compose family / profession emoji sequences
+    .replace(/\u200D/g, "")
+    // Combining enclosing keycap (e.g. 1️⃣)
+    .replace(/\u20E3/g, "")
+    // Collapse whitespace runs left by removed emoji
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return clean;
+}
+
 // ── Sentence splitter ─────────────────────────────────────────────────────────
 // Splits on Japanese/Chinese/general punctuation.
 // For CJK text (no sentence-final punctuation), we buffer the entire response
@@ -71,9 +98,11 @@ export const textsToScreenplay = (
     const emotionTag = allTags.find((t) => emotions.includes(t as any));
     const poseTag = allTags.find((t) => ALL_POSE_TAGS.includes(t));
 
-    // Remove bracket tags AND asterisk actions from the spoken text
+    // Remove bracket tags AND asterisk actions from the spoken text,
+    // then also strip emojis so TTS engines receive clean plain text.
     let message = text.replace(/\[[a-zA-Z_]*?\]/g, "").trim();
     message = stripAsteriskActions(message);
+    message = stripEmojisForTTS(message);
 
     let expression = prevExpression;
     if (emotionTag && emotions.includes(emotionTag as any)) {
