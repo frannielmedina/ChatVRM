@@ -72,7 +72,7 @@ export const VisionSettings = ({
       {/* Info box */}
       <div className="mb-16 p-12 bg-surface1 rounded-8 text-sm text-text-primary/70 leading-relaxed">
         <p>
-          Uses <strong>Llama 4 Scout</strong> (Groq multimodal) to periodically analyze your
+          Uses <strong>Qwen 3.6 27B</strong> (Groq multimodal) to periodically analyze your
           screen and have the character comment on it in character. Works with both{" "}
           <strong>Chrome Screen Share</strong> and <strong>VDO.Ninja</strong> modes.
         </p>
@@ -154,7 +154,7 @@ export const VisionSettings = ({
             <span className="text-xs text-purple-600 font-bold">Groq Multimodal</span>
           </div>
           <div className="text-xs text-text-primary/50 mt-4">
-            Llama 4 Scout 17B — optimized for fast visual analysis
+            Qwen 3.6 27B — optimized for fast visual analysis
           </div>
         </div>
 
@@ -237,7 +237,7 @@ export const VisionSettings = ({
           </summary>
           <div className="mt-8 space-y-4 leading-relaxed">
             <p>1. Every N seconds, a frame is captured from the active screen share (Chrome or VDO.Ninja).</p>
-            <p>2. The frame is sent to <strong>Llama 4 Scout</strong> on Groq via its multimodal API.</p>
+            <p>2. The frame is sent to <strong>Qwen 3.6</strong> on Groq via its multimodal API.</p>
             <p>3. The model describes what it sees on screen, in character.</p>
             <p>4. The description becomes a normal chat message — your VTuber says it aloud.</p>
             <p>5. You can also click <strong>Capture Now</strong> for an instant observation, or use the 👁 toolbar button to toggle vision on/off without opening Settings.</p>
