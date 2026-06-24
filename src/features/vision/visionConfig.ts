@@ -3,14 +3,14 @@
 export type VisionConfig = {
   enabled: boolean;
   intervalSeconds: number; // How often to capture (default 420 = 7 min)
-  model: string;           // llama-4-scout-17b-16e-instruct
+  model: string;           // qwen/qwen3.6-27b
   groqApiKey: string;      // Uses same Groq key as chat by default
 };
 
 export const DEFAULT_VISION_CONFIG: VisionConfig = {
   enabled: false,
   intervalSeconds: 420, // 7 minutes
-  model: "meta-llama/llama-4-scout-17b-16e-instruct",
+  model: "qwen/qwen3.6-27b",
   groqApiKey: "",
 };
 
