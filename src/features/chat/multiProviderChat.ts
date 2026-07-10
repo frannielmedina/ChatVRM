@@ -8,6 +8,7 @@ const MAX_TOKENS_BY_PROVIDER: Partial<Record<string, number>> = {
   google:     2048,
   openrouter: 1200,
   fireworks:  1200,
+  cerebras:   1200,
   ollama:     2048,
   lmstudio:   2048,
 };
@@ -27,6 +28,7 @@ const MAX_HISTORY_PAIRS_BY_PROVIDER: Partial<Record<string, number>> = {
   google:     20,
   openrouter: 12,
   fireworks:  12,
+  cerebras:   12,
   ollama:     20,
   lmstudio:   20,
 };
@@ -90,6 +92,8 @@ function getBaseUrl(config: AIProviderConfig): string {
       return "https://openrouter.ai/api/v1";
     case "fireworks":
       return "https://api.fireworks.ai/inference/v1";
+    case "cerebras":
+      return "https://api.cerebras.ai/v1";
     case "ollama":
       return (config.baseUrl?.replace(/\/$/, "") || "http://localhost:11434") + "/v1";
     case "lmstudio":

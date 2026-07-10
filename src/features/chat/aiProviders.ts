@@ -4,6 +4,7 @@ export type AIProvider =
   | "google"
   | "openrouter"
   | "fireworks"
+  | "cerebras"
   | "ollama"
   | "lmstudio";
 
@@ -122,6 +123,23 @@ export const AI_PROVIDERS: ProviderMeta[] = [
       { value: "accounts/fireworks/models/mixtral-8x7b-instruct", label: "Mixtral 8x7B" },
       { value: "accounts/fireworks/models/gemma2-9b-it", label: "Gemma 2 9B" },
       { value: "accounts/fireworks/models/qwen2p5-72b-instruct", label: "Qwen 2.5 72B" },
+    ],
+  },
+  {
+    value: "cerebras",
+    label: "Cerebras",
+    description: "World's fastest inference — wafer-scale hardware",
+    requiresKey: true,
+    requiresBaseUrl: false,
+    keyPlaceholder: "csk-...",
+    keyLink: "https://cloud.cerebras.ai/",
+    keyLinkLabel: "cloud.cerebras.ai",
+    models: [
+      { value: "llama-3.3-70b", label: "Llama 3.3 70B" },
+      { value: "llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout 17B" },
+      { value: "qwen-3-32b", label: "Qwen 3 32B" },
+      { value: "gpt-oss-120b", label: "GPT-OSS 120B" },
+      { value: "zai-glm-4.7", label: "Z.ai GLM 4.7 (preview)" },
     ],
   },
   {
