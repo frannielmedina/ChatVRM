@@ -24,7 +24,7 @@ export type CaptionStyle = {
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   fontSize: 28,
-  fontFamily: "Montserrat",
+  fontFamily: "Arial",
   textColor: "#ffffff",
   strokeColor: "#000000",
   strokeWidth: 6,
@@ -48,7 +48,7 @@ type Props = {
 };
 
 const FONT_OPTIONS = [
-  "Montserrat",
+  "Arial",
   "Arial Black",
   "Impact",
   "Georgia",

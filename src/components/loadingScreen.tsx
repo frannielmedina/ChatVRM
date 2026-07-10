@@ -57,7 +57,7 @@ export const LoadingScreen = ({ onComplete }: Props) => {
       }`}
       style={{
         background: "linear-gradient(135deg, #1a0d22 0%, #2d1a3d 40%, #1a0d22 100%)",
-        fontFamily: "'Montserrat', sans-serif",
+        fontFamily: "'Arial', sans-serif",
       }}
     >
       {/* Animated background orbs */}
