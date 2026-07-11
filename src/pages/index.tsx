@@ -94,7 +94,8 @@ export default function Home() {
   // Twitch
   const [twitchConfig, setTwitchConfig] = useState<TwitchConfig>(DEFAULT_TWITCH_CONFIG);
   const [twitchConnected, setTwitchConnected] = useState(false);
-  const [twitchMessages, setTwitchMessages] = useState<TwitchMessage[]>([]);
+  const [activeTwitchMessage, setActiveTwitchMessage] = useState<TwitchMessage | null>(null);
+  const [twitchQueueCount, setTwitchQueueCount] = useState(0);
 
   // Discord
   const [discordConfig, setDiscordConfig] = useState<DiscordConfig>(DEFAULT_DISCORD_CONFIG);
@@ -111,12 +112,14 @@ export default function Home() {
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
 
   // ── Twitch message queue ───────────────────────────────────────────────────
-  const twitchQueueRef = useRef<string[]>([]);
+  const twitchQueueRef = useRef<TwitchMessage[]>([]);
   const twitchProcessingRef = useRef(false);
+  const bannedTwitchUsersRef = useRef<Set<string>>(new Set());
 
   const sendChatRef = useRef<(text: string) => Promise<void>>(async () => {});
   const twitchUnsubRef = useRef<(() => void) | null>(null);
   const twitchCmdUnsubRef = useRef<(() => void) | null>(null);
+  const twitchBanUnsubRef = useRef<(() => void) | null>(null);
 
   // Discord unsub refs
   const discordMsgUnsubRef = useRef<(() => void) | null>(null);
@@ -226,6 +229,8 @@ export default function Home() {
     setAssistantMessage("");
     twitchQueueRef.current = [];
     twitchProcessingRef.current = false;
+    setActiveTwitchMessage(null);
+    setTwitchQueueCount(0);
     const savedUrl = localStorage.getItem(VRM_URL_KEY);
     if (savedUrl) {
       viewer.loadVrm(savedUrl);
@@ -361,13 +366,27 @@ export default function Home() {
   }, [handleSendChat]);
 
   // ── Twitch queue processor ─────────────────────────────────────────────────
+  // Shows exactly one message on screen: the one Miko is currently replying
+  // to. Drops any message from a user who got banned while it was waiting in
+  // line, so the AI never responds to a spambot the mod bots already caught.
   const processTwitchQueue = useCallback(async () => {
     if (twitchProcessingRef.current) return;
     twitchProcessingRef.current = true;
 
     while (twitchQueueRef.current.length > 0) {
       const next = twitchQueueRef.current.shift()!;
-      await sendChatRef.current(next);
+      setTwitchQueueCount(twitchQueueRef.current.length);
+
+      if (bannedTwitchUsersRef.current.has(next.username.toLowerCase())) {
+        continue;
+      }
+
+      setActiveTwitchMessage(next);
+      const prompt = `[Twitch chat] ${next.username}: ${next.message}`;
+      await sendChatRef.current(prompt);
+
+      // Only clear if a ban handler hasn't already cleared it early
+      setActiveTwitchMessage((cur) => (cur === next ? null : cur));
     }
 
     twitchProcessingRef.current = false;
@@ -400,22 +419,21 @@ export default function Home() {
   const handleTwitchConnect = useCallback(() => {
     twitchUnsubRef.current?.();
     twitchCmdUnsubRef.current?.();
+    twitchBanUnsubRef.current?.();
 
     twitchClient.connect(twitchConfig.channel, twitchConfig.oauthToken);
 
     const unsub = twitchClient.onMessage((msg) => {
-      setTwitchMessages((prev) => [...prev.slice(-49), msg]);
+      if (!twitchConfig.respondToChat) return;
 
-      if (twitchConfig.respondToChat) {
-        const trimmed = msg.message.trim();
-        if (trimmed.startsWith("!")) return;
-        const startsWithMention = /^@\S+/.test(trimmed);
-        if (startsWithMention) return;
+      const trimmed = msg.message.trim();
+      if (trimmed.startsWith("!")) return;
+      if (/^@\S+/.test(trimmed)) return;
+      if (bannedTwitchUsersRef.current.has(msg.username.toLowerCase())) return;
 
-        const prompt = `[Twitch chat] ${msg.username}: ${msg.message}`;
-        twitchQueueRef.current.push(prompt);
-        processTwitchQueue();
-      }
+      twitchQueueRef.current.push(msg);
+      setTwitchQueueCount(twitchQueueRef.current.length);
+      processTwitchQueue();
     });
 
     const cmdUnsub = twitchClient.onCommand((command) => {
@@ -424,8 +442,25 @@ export default function Home() {
       }
     });
 
+    // Spambot bans/timeouts: drop any of their messages still waiting in the
+    // queue, and immediately hide the on-screen box if it's theirs right now.
+    const banUnsub = twitchClient.onBan((e) => {
+      const uname = e.username.toLowerCase();
+      bannedTwitchUsersRef.current.add(uname);
+
+      twitchQueueRef.current = twitchQueueRef.current.filter(
+        (m) => m.username.toLowerCase() !== uname
+      );
+      setTwitchQueueCount(twitchQueueRef.current.length);
+
+      setActiveTwitchMessage((cur) =>
+        cur && cur.username.toLowerCase() === uname ? null : cur
+      );
+    });
+
     twitchUnsubRef.current = unsub;
     twitchCmdUnsubRef.current = cmdUnsub;
+    twitchBanUnsubRef.current = banUnsub;
     setTwitchConnected(true);
   }, [twitchConfig, processTwitchQueue, handleResetCommand]);
 
@@ -434,16 +469,22 @@ export default function Home() {
     setTwitchConnected(false);
     twitchQueueRef.current = [];
     twitchProcessingRef.current = false;
+    bannedTwitchUsersRef.current = new Set();
+    setActiveTwitchMessage(null);
+    setTwitchQueueCount(0);
     twitchUnsubRef.current?.();
     twitchCmdUnsubRef.current?.();
+    twitchBanUnsubRef.current?.();
     twitchUnsubRef.current = null;
     twitchCmdUnsubRef.current = null;
+    twitchBanUnsubRef.current = null;
   }, []);
 
   useEffect(() => {
     return () => {
       twitchUnsubRef.current?.();
       twitchCmdUnsubRef.current?.();
+      twitchBanUnsubRef.current?.();
     };
   }, []);
 
@@ -623,9 +664,9 @@ export default function Home() {
 
       {twitchConfig.readChat && (
         <TwitchOverlay
-          messages={twitchMessages}
+          activeMessage={activeTwitchMessage}
+          queuedCount={twitchQueueCount}
           isConnected={twitchConnected}
-          channel={twitchConfig.channel}
         />
       )}
 
