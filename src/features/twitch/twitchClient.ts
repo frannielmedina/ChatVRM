@@ -7,7 +7,18 @@ export type TwitchMessage = {
   isBroadcaster?: boolean;
   // Extended fields parsed from IRC tags
   emotesTag?: string;      // raw emotes tag value, e.g. "25:0-4/112291:6-15"
-  badgeImages?: string[];  // CDN URLs for all badges the user has
+  badgeImages?: TwitchBadge[]; // CDN URLs + names for all badges the user has
+};
+
+export type TwitchBadge = {
+  name: string; // e.g. "broadcaster", "moderator", "vip", "subscriber"
+  label: string; // human readable, used for the tooltip/title
+  url: string;
+};
+
+export type TwitchBanEvent = {
+  username: string;
+  permanent: boolean; // false = timeout (temporary), true = permanent ban
 };
 
 export type TwitchConfig = {
@@ -35,7 +46,7 @@ type CommandHandler = (command: string, msg: TwitchMessage) => void;
 // For unlisted badges we fall back to the Twitch Badges API URL pattern.
 const KNOWN_BADGE_URLS: Record<string, (version: string) => string> = {
   broadcaster: () =>
-    "https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcafa85b/1",
+    "https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcb85cc1/1",
   moderator: () =>
     "https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/1",
   vip: () =>
@@ -57,19 +68,39 @@ const KNOWN_BADGE_URLS: Record<string, (version: string) => string> = {
     "https://static-cdn.jtvnw.net/badges/v1/199a0dab-75d5-4c2d-a74c-19f4be4bc2fc/1",
 };
 
-function parseBadgeImages(badgesStr: string): string[] {
+// Human-readable labels shown in the badge tooltip (title attribute)
+const BADGE_LABELS: Record<string, string> = {
+  broadcaster: "Broadcaster",
+  moderator: "Moderator",
+  vip: "VIP",
+  subscriber: "Subscriber",
+  "bits-leader": "Bits Leader",
+  partner: "Partner",
+  turbo: "Turbo",
+  premium: "Prime Gaming",
+  no_audio: "No Audio",
+  no_video: "No Video",
+};
+
+function parseBadgeImages(badgesStr: string): TwitchBadge[] {
   if (!badgesStr) return [];
-  const urls: string[] = [];
+  const badges: TwitchBadge[] = [];
+  const seen = new Set<string>();
   for (const badge of badgesStr.split(",")) {
     const [name, version] = badge.split("/");
-    if (!name) continue;
+    if (!name || seen.has(name)) continue;
     const resolver = KNOWN_BADGE_URLS[name];
     if (resolver) {
-      urls.push(resolver(version || "1"));
+      seen.add(name);
+      badges.push({
+        name,
+        label: BADGE_LABELS[name] || name,
+        url: resolver(version || "1"),
+      });
     }
     // Unknown badges: we skip rather than guess a broken URL
   }
-  return urls;
+  return badges;
 }
 
 export class TwitchClient {
@@ -78,6 +109,7 @@ export class TwitchClient {
   private reconnectTimer: any = null;
   private handlers: MessageHandler[] = [];
   private commandHandlers: CommandHandler[] = [];
+  private banHandlers: ((e: TwitchBanEvent) => void)[] = [];
   private pingInterval: any = null;
 
   connect(channel: string, oauthToken?: string) {
@@ -147,9 +179,44 @@ export class TwitchClient {
     };
   }
 
+  // Fires when a user is banned or timed out in the channel (via CLEARCHAT),
+  // regardless of whether a human mod or a moderation bot issued the ban.
+  onBan(handler: (e: TwitchBanEvent) => void) {
+    this.banHandlers.push(handler);
+    return () => {
+      this.banHandlers = this.banHandlers.filter((h) => h !== handler);
+    };
+  }
+
   private parseMessage(raw: string) {
     const lines = raw.split("\r\n").filter(Boolean);
     for (const line of lines) {
+      // ── CLEARCHAT (ban / timeout) ──────────────────────────────────────
+      // Twitch relays this for ANY ban/timeout in the channel, whether it
+      // was issued by a human mod or a moderation bot, so this is the
+      // single source of truth for "this user just got banned".
+      const clearChatMatch = line.match(
+        /^@([^ ]+) :tmi\.twitch\.tv CLEARCHAT #\S+(?: :(\S+))?$/
+      );
+      if (clearChatMatch) {
+        const targetUser = clearChatMatch[2];
+        if (targetUser) {
+          const tagsStr = clearChatMatch[1];
+          const tags: Record<string, string> = {};
+          tagsStr.split(";").forEach((tag) => {
+            const eqIdx = tag.indexOf("=");
+            if (eqIdx === -1) return;
+            tags[tag.slice(0, eqIdx)] = tag.slice(eqIdx + 1);
+          });
+          const banEvent: TwitchBanEvent = {
+            username: targetUser,
+            permanent: !tags["ban-duration"],
+          };
+          this.banHandlers.forEach((h) => h(banEvent));
+        }
+        continue;
+      }
+
       // ── Tagged PRIVMSG ──────────────────────────────────────────────────
       const tagMatch = line.match(/^@([^ ]+) :(\S+)!.*PRIVMSG #(\S+) :(.+)$/);
       if (tagMatch) {
@@ -191,7 +258,7 @@ export class TwitchClient {
         }
 
         this.handlers.forEach((h) => h(twitchMsg));
-        return;
+        continue;
       }
 
       // ── Untagged PRIVMSG fallback ───────────────────────────────────────
