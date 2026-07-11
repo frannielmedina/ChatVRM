@@ -216,7 +216,7 @@ export const AssistantText = ({
         <p
           style={{
             fontSize: `${captionStyle.fontSize}px`,
-            fontFamily: `'${captionStyle.fontFamily}', 'M PLUS 2', sans-serif`,
+            fontFamily: `'${captionStyle.fontFamily}', Arial, sans-serif`,
             fontWeight: 800,
             color: captionStyle.textColor,
             textShadow,
