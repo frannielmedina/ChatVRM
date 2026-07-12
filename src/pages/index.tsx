@@ -571,6 +571,14 @@ export default function Home() {
     }
   }, [screenShareConfig, handleScreenShareStop]);
 
+  // Snap the character to the corner "facecam" framing while screen share /
+  // VDO.Ninja is active, and restore the original centered framing the
+  // moment it stops (button click, browser's native "Stop sharing", or the
+  // VDO.Ninja connection ending).
+  useEffect(() => {
+    viewer.setScreenShareFraming(screenShareConfig.active);
+  }, [screenShareConfig.active, viewer]);
+
   const handleChangeTtsConfig = useCallback((config: TTSConfig) => {
     setTtsConfig(config);
   }, []);
