@@ -14,6 +14,24 @@ export class Viewer {
   private _camera?: THREE.PerspectiveCamera;
   private _cameraControls?: OrbitControls;
 
+  // Default close-up framing (face/upper body, centered) — used both on
+  // initial load and restored whenever screen share / VDO.Ninja stops.
+  private readonly DEFAULT_FOV = 20.0;
+  private readonly DEFAULT_CAMERA_POS = new THREE.Vector3(0, 1.3, 1.5);
+
+  // Corner "facecam" framing used while sharing a screen or game — pulled
+  // back to show the full body, panned so the model sits toward the right
+  // side of frame with the shared content visible through the rest.
+  // The default lens is a narrow 20° "telephoto" FOV (good for a tight,
+  // undistorted close-up on the face) — just moving the camera back with
+  // that same FOV barely reveals more than the head, so this framing also
+  // widens the FOV to something closer to a normal webcam lens.
+  private readonly SCREEN_SHARE_FOV = 42.0;
+  private readonly SCREEN_SHARE_CAMERA_POS = new THREE.Vector3(0.25, 1.55, 2.6);
+  private readonly SCREEN_SHARE_TARGET_OFFSET_X = -0.75;
+
+  private _isScreenShareFraming = false;
+
   constructor() {
     this.isReady = false;
     const scene = new THREE.Scene();
@@ -60,8 +78,8 @@ export class Viewer {
     this._renderer.setSize(width, height);
     this._renderer.setPixelRatio(window.devicePixelRatio);
 
-    this._camera = new THREE.PerspectiveCamera(20.0, width / height, 0.1, 20.0);
-    this._camera.position.set(0, 1.3, 1.5);
+    this._camera = new THREE.PerspectiveCamera(this.DEFAULT_FOV, width / height, 0.1, 20.0);
+    this._camera.position.copy(this.DEFAULT_CAMERA_POS);
     this._cameraControls?.target.set(0, 1.3, 0);
     this._cameraControls?.update();
 
@@ -86,6 +104,10 @@ export class Viewer {
   }
 
   public resetCamera() {
+    if (this._isScreenShareFraming) {
+      this.applyScreenShareFraming();
+      return;
+    }
     const headNode = this.model?.vrm?.humanoid.getNormalizedBoneNode("head");
     if (headNode) {
       const headWPos = headNode.getWorldPosition(new THREE.Vector3());
@@ -93,6 +115,49 @@ export class Viewer {
       this._cameraControls?.target.set(headWPos.x, headWPos.y, headWPos.z);
       this._cameraControls?.update();
     }
+  }
+
+  // Toggles between the default centered close-up and the pulled-back
+  // "corner facecam" framing used while screen sharing / VDO.Ninja is
+  // active. Call with `false` to restore the original position when
+  // sharing stops.
+  public setScreenShareFraming(active: boolean) {
+    this._isScreenShareFraming = active;
+    if (!this._camera || !this._cameraControls) return;
+
+    if (active) {
+      this.applyScreenShareFraming();
+    } else {
+      this._camera.fov = this.DEFAULT_FOV;
+      this._camera.updateProjectionMatrix();
+      this._camera.position.copy(this.DEFAULT_CAMERA_POS);
+      const headNode = this.model?.vrm?.humanoid.getNormalizedBoneNode("head");
+      if (headNode) {
+        const headWPos = headNode.getWorldPosition(new THREE.Vector3());
+        this._cameraControls.target.set(headWPos.x, headWPos.y, headWPos.z);
+      } else {
+        this._cameraControls.target.set(0, 1.3, 0);
+      }
+      this._cameraControls.update();
+    }
+  }
+
+  private applyScreenShareFraming() {
+    if (!this._camera || !this._cameraControls) return;
+    const hipsNode = this.model?.vrm?.humanoid.getNormalizedBoneNode("hips");
+    const baseY = hipsNode
+      ? hipsNode.getWorldPosition(new THREE.Vector3()).y
+      : 0.9;
+
+    this._camera.fov = this.SCREEN_SHARE_FOV;
+    this._camera.updateProjectionMatrix();
+    this._camera.position.copy(this.SCREEN_SHARE_CAMERA_POS);
+    this._cameraControls.target.set(
+      this.SCREEN_SHARE_TARGET_OFFSET_X,
+      baseY,
+      0
+    );
+    this._cameraControls.update();
   }
 
   public update = () => {
