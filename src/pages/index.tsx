@@ -571,12 +571,16 @@ export default function Home() {
     }
   }, [screenShareConfig, handleScreenShareStop]);
 
-  // Snap the character to the corner "facecam" framing while screen share /
-  // VDO.Ninja is active, and restore the original centered framing the
-  // moment it stops (button click, browser's native "Stop sharing", or the
-  // VDO.Ninja connection ending).
+  // Snap the character to the corner "facecam" box while screen share /
+  // VDO.Ninja is active, and restore the original full-screen centered
+  // framing the moment it stops (button click, browser's native "Stop
+  // sharing", or the VDO.Ninja connection ending).
   useEffect(() => {
     viewer.setScreenShareFraming(screenShareConfig.active);
+    // The canvas's container just resized (full-screen <-> corner box) —
+    // let the renderer/camera aspect catch up to the new dimensions once
+    // the DOM has actually reflowed with the new size.
+    requestAnimationFrame(() => viewer.resize());
   }, [screenShareConfig.active, viewer]);
 
   const handleChangeTtsConfig = useCallback((config: TTSConfig) => {
@@ -602,7 +606,7 @@ export default function Home() {
         active={screenShareConfig.active}
       />
 
-      <VrmViewer />
+      <VrmViewer cornerMode={screenShareConfig.active} />
 
       <div
         className={`transition-opacity duration-500 ${
