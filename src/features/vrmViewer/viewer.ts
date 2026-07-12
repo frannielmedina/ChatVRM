@@ -19,16 +19,15 @@ export class Viewer {
   private readonly DEFAULT_FOV = 20.0;
   private readonly DEFAULT_CAMERA_POS = new THREE.Vector3(0, 1.3, 1.5);
 
-  // Corner "facecam" framing used while sharing a screen or game — pulled
-  // back to show the full body, panned so the model sits toward the right
-  // side of frame with the shared content visible through the rest.
-  // The default lens is a narrow 20° "telephoto" FOV (good for a tight,
-  // undistorted close-up on the face) — just moving the camera back with
-  // that same FOV barely reveals more than the head, so this framing also
-  // widens the FOV to something closer to a normal webcam lens.
-  private readonly SCREEN_SHARE_FOV = 42.0;
-  private readonly SCREEN_SHARE_CAMERA_POS = new THREE.Vector3(0.25, 1.55, 2.6);
-  private readonly SCREEN_SHARE_TARGET_OFFSET_X = -0.75;
+  // Corner "facecam" framing used while sharing a screen or game. The
+  // corner box itself (see vrmViewer.tsx `cornerMode`) is what confines the
+  // avatar to the corner — this framing just needs to show a clean,
+  // straight-on full-body shot within that narrower box. The default lens
+  // is a narrow 20° "telephoto" FOV (good for a tight close-up on the
+  // face) — moving the camera back with that same FOV barely reveals more
+  // than the head, so this also widens the FOV to a normal webcam-ish lens.
+  private readonly SCREEN_SHARE_FOV = 32.0;
+  private readonly SCREEN_SHARE_CAMERA_POS = new THREE.Vector3(0, 1.5, 2.4);
 
   private _isScreenShareFraming = false;
 
@@ -152,11 +151,7 @@ export class Viewer {
     this._camera.fov = this.SCREEN_SHARE_FOV;
     this._camera.updateProjectionMatrix();
     this._camera.position.copy(this.SCREEN_SHARE_CAMERA_POS);
-    this._cameraControls.target.set(
-      this.SCREEN_SHARE_TARGET_OFFSET_X,
-      baseY,
-      0
-    );
+    this._cameraControls.target.set(0, baseY, 0);
     this._cameraControls.update();
   }
 
