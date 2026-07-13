@@ -5,6 +5,7 @@ import {
   QWEN_SPEAKERS,
   ELEVENLABS_MODELS,
   ElevenLabsModel,
+  FISH_AUDIO_MODEL_SUGGESTIONS,
 } from "@/features/tts/ttsConfig";
 import { Link } from "./link";
 
@@ -243,6 +244,82 @@ export const TTSSettings = ({
               value={ttsConfig.elevenLabsVoiceId || ""}
               onChange={(e) => update({ elevenLabsVoiceId: e.target.value })}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ── Fish Audio ────────────────────────────────────────────────────── */}
+      {ttsConfig.provider === "fish-audio" && (
+        <div className="my-16 p-16 bg-surface1 rounded-8 flex flex-col gap-16">
+          {/* API key */}
+          <div>
+            <div className="font-bold mb-4">API Key</div>
+            <input
+              className="text-ellipsis px-16 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8"
+              type="password"
+              placeholder="fish_… (Fish Audio API key)"
+              value={ttsConfig.fishAudioKey || ""}
+              onChange={(e) => update({ fishAudioKey: e.target.value })}
+            />
+          </div>
+
+          {/* Model — free-typed, with suggestions */}
+          <div>
+            <div className="font-bold mb-4">Model</div>
+            <input
+              className="text-ellipsis px-16 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8"
+              type="text"
+              list="fish-audio-model-suggestions"
+              placeholder="s2.1-pro-free"
+              value={ttsConfig.fishAudioModel ?? ""}
+              onChange={(e) => update({ fishAudioModel: e.target.value })}
+            />
+            <datalist id="fish-audio-model-suggestions">
+              {FISH_AUDIO_MODEL_SUGGESTIONS.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+            <div className="text-xs text-text-primary/60 mt-4">
+              Type any Fish Audio model id (e.g. <code>s2.1-pro-free</code>, <code>s1</code>,{" "}
+              <code>speech-1.6</code>). Suggestions above are just a starting point — new
+              models will work as soon as Fish Audio releases them.
+            </div>
+          </div>
+
+          {/* Reference / voice ID */}
+          <div>
+            <div className="font-bold mb-4">Reference ID (voice)</div>
+            <input
+              className="text-ellipsis px-16 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8"
+              type="text"
+              placeholder="c4909d7830f7459ea8f15d84802a5d03"
+              value={ttsConfig.fishAudioReferenceId || ""}
+              onChange={(e) => update({ fishAudioReferenceId: e.target.value })}
+            />
+          </div>
+
+          {/* Output format */}
+          <div>
+            <div className="font-bold mb-8">Format</div>
+            <select
+              className="px-16 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8"
+              value={ttsConfig.fishAudioFormat || "mp3"}
+              onChange={(e) =>
+                update({ fishAudioFormat: e.target.value as TTSConfig["fishAudioFormat"] })
+              }
+            >
+              <option value="mp3">mp3</option>
+              <option value="wav">wav</option>
+              <option value="pcm">pcm</option>
+              <option value="opus">opus</option>
+            </select>
+          </div>
+
+          <div className="text-xs text-text-primary/60">
+            Get an API key at <Link url="https://fish.audio" label="fish.audio" />. Tip: you
+            can use style tags like <code>[excited]</code> or <code>[laughing]</code> inside
+            the text for expressive delivery. Keys are stored locally in your browser and
+            never sent to any server other than Fish Audio.
           </div>
         </div>
       )}
