@@ -257,7 +257,7 @@ export const TTSSettings = ({
             <input
               className="text-ellipsis px-16 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8"
               type="password"
-              placeholder="fish_… (Fish Audio API key)"
+              placeholder="Paste your Fish Audio API key"
               value={ttsConfig.fishAudioKey || ""}
               onChange={(e) => update({ fishAudioKey: e.target.value })}
             />
