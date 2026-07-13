@@ -180,8 +180,14 @@ export async function synthesizeElevenLabsWithRotation(
 
 // ── Fish Audio ────────────────────────────────────────────────────────────────
 // Model is a free-typed string (e.g. "s2.1-pro-free", "s1", "speech-1.6", or
-// any future Fish Audio model id) sent both as the `model` header and, per
-// Fish Audio's API, doubles as the request's model selector.
+// any future Fish Audio model id) sent as the `model` header, per Fish
+// Audio's API.
+//
+// IMPORTANT: Fish Audio's API does not send back CORS headers, so a direct
+// browser fetch() to https://api.fish.audio/v1/tts is blocked by the browser
+// ("CORS Missing Allow Origin" on the OPTIONS preflight). We route the
+// request through our own Next.js API route (/api/fish-tts), which runs
+// server-side and isn't subject to CORS, and it streams the audio back to us.
 export async function synthesizeFishAudio(
   message: string,
   apiKey: string,
@@ -192,16 +198,14 @@ export async function synthesizeFishAudio(
   if (!apiKey) throw new Error("Fish Audio API key not configured");
   if (!model) throw new Error("Fish Audio model not set");
 
-  const res = await fetch("https://api.fish.audio/v1/tts", {
+  const res = await fetch("/api/fish-tts", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      model: model,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: message,
-      reference_id: referenceId || undefined,
+      message,
+      apiKey,
+      model,
+      referenceId,
       format,
     }),
   });
