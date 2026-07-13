@@ -178,6 +178,41 @@ export async function synthesizeElevenLabsWithRotation(
   throw lastError ?? new Error("All ElevenLabs keys failed.");
 }
 
+// ── Fish Audio ────────────────────────────────────────────────────────────────
+// Model is a free-typed string (e.g. "s2.1-pro-free", "s1", "speech-1.6", or
+// any future Fish Audio model id) sent both as the `model` header and, per
+// Fish Audio's API, doubles as the request's model selector.
+export async function synthesizeFishAudio(
+  message: string,
+  apiKey: string,
+  model: string,
+  referenceId: string,
+  format: "mp3" | "wav" | "pcm" | "opus" = "mp3"
+): Promise<ArrayBuffer> {
+  if (!apiKey) throw new Error("Fish Audio API key not configured");
+  if (!model) throw new Error("Fish Audio model not set");
+
+  const res = await fetch("https://api.fish.audio/v1/tts", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      model: model,
+    },
+    body: JSON.stringify({
+      text: message,
+      reference_id: referenceId || undefined,
+      format,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Fish Audio error: ${res.status} — ${err}`);
+  }
+  return res.arrayBuffer();
+}
+
 // ── Qwen3-TTS Remote ─────────────────────────────────────────────────────────
 export async function synthesizeQwenRemote(
   message: string,
@@ -239,6 +274,14 @@ export async function synthesizeWithProvider(
       );
     case "elevenlabs":
       return synthesizeElevenLabsWithRotation(cleanMessage, config);
+    case "fish-audio":
+      return synthesizeFishAudio(
+        cleanMessage,
+        config.fishAudioKey || "",
+        config.fishAudioModel || "s2.1-pro-free",
+        config.fishAudioReferenceId || "",
+        config.fishAudioFormat || "mp3"
+      );
     case "qwen-remote":
       if (!config.qwenRemoteUrl)
         throw new Error("Qwen Remote URL not configured");
