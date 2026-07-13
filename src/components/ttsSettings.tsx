@@ -318,8 +318,9 @@ export const TTSSettings = ({
           <div className="text-xs text-text-primary/60">
             Get an API key at <Link url="https://fish.audio" label="fish.audio" />. Tip: you
             can use style tags like <code>[excited]</code> or <code>[laughing]</code> inside
-            the text for expressive delivery. Keys are stored locally in your browser and
-            never sent to any server other than Fish Audio.
+            the text for expressive delivery. Requests go through this app&apos;s own server
+            (Fish Audio doesn&apos;t support calling its API directly from a browser), so your
+            key is sent to this app&apos;s server and then to Fish Audio — not stored anywhere.
           </div>
         </div>
       )}
