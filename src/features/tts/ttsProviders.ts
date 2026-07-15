@@ -2,7 +2,7 @@ import { TalkStyle } from "../messages/messages";
 import { TTSConfig, ElevenLabsModel } from "./ttsConfig";
 import { reduceTalkStyle } from "@/utils/reduceTalkStyle";
 import { koeiromapFreeV1 } from "../koeiromap/koeiromap";
-import { stripEmojisForTTS } from "../messages/messages";
+import { stripEmojisForTTS, stripUnspokenSymbolsForTTS } from "../messages/messages";
 
 // ── Koeiromap ─────────────────────────────────────────────────────────────────
 export async function synthesizeKoeiromap(
@@ -178,45 +178,6 @@ export async function synthesizeElevenLabsWithRotation(
   throw lastError ?? new Error("All ElevenLabs keys failed.");
 }
 
-// ── Fish Audio ────────────────────────────────────────────────────────────────
-// Model is a free-typed string (e.g. "s2.1-pro-free", "s1", "speech-1.6", or
-// any future Fish Audio model id) sent as the `model` header, per Fish
-// Audio's API.
-//
-// IMPORTANT: Fish Audio's API does not send back CORS headers, so a direct
-// browser fetch() to https://api.fish.audio/v1/tts is blocked by the browser
-// ("CORS Missing Allow Origin" on the OPTIONS preflight). We route the
-// request through our own Next.js API route (/api/fish-tts), which runs
-// server-side and isn't subject to CORS, and it streams the audio back to us.
-export async function synthesizeFishAudio(
-  message: string,
-  apiKey: string,
-  model: string,
-  referenceId: string,
-  format: "mp3" | "wav" | "pcm" | "opus" = "mp3"
-): Promise<ArrayBuffer> {
-  if (!apiKey) throw new Error("Fish Audio API key not configured");
-  if (!model) throw new Error("Fish Audio model not set");
-
-  const res = await fetch("/api/fish-tts", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message,
-      apiKey,
-      model,
-      referenceId,
-      format,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Fish Audio error: ${res.status} — ${err}`);
-  }
-  return res.arrayBuffer();
-}
-
 // ── Qwen3-TTS Remote ─────────────────────────────────────────────────────────
 export async function synthesizeQwenRemote(
   message: string,
@@ -255,8 +216,9 @@ export async function synthesizeGPTSoVITS(
 }
 
 // ── Unified synthesizer ───────────────────────────────────────────────────────
-// stripEmojisForTTS is applied here as a final safety net regardless of which
-// provider is used — this catches any call path that bypasses textsToScreenplay.
+// stripEmojisForTTS/stripUnspokenSymbolsForTTS are applied here as a final
+// safety net regardless of which provider is used — this catches any call
+// path that bypasses textsToScreenplay.
 export async function synthesizeWithProvider(
   message: string,
   style: TalkStyle,
@@ -264,8 +226,8 @@ export async function synthesizeWithProvider(
   speakerY: number,
   config: TTSConfig
 ): Promise<ArrayBuffer> {
-  // Always strip emojis before sending to any TTS engine
-  const cleanMessage = stripEmojisForTTS(message);
+  // Always strip emojis and unspoken symbols before sending to any TTS engine
+  const cleanMessage = stripUnspokenSymbolsForTTS(stripEmojisForTTS(message));
 
   switch (config.provider) {
     case "koeiromap":
@@ -278,14 +240,6 @@ export async function synthesizeWithProvider(
       );
     case "elevenlabs":
       return synthesizeElevenLabsWithRotation(cleanMessage, config);
-    case "fish-audio":
-      return synthesizeFishAudio(
-        cleanMessage,
-        config.fishAudioKey || "",
-        config.fishAudioModel || "s2.1-pro-free",
-        config.fishAudioReferenceId || "",
-        config.fishAudioFormat || "mp3"
-      );
     case "qwen-remote":
       if (!config.qwenRemoteUrl)
         throw new Error("Qwen Remote URL not configured");

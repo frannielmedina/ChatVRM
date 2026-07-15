@@ -1,4 +1,4 @@
-export type TTSProvider = "koeiromap" | "elevenlabs" | "fish-audio" | "qwen-remote" | "gpt-sovits";
+export type TTSProvider = "koeiromap" | "elevenlabs" | "qwen-remote" | "gpt-sovits";
 
 export const TTS_PROVIDERS: { value: TTSProvider; label: string; description: string }[] = [
   {
@@ -10,11 +10,6 @@ export const TTS_PROVIDERS: { value: TTSProvider; label: string; description: st
     value: "elevenlabs",
     label: "ElevenLabs",
     description: "ElevenLabs API — realistic voice cloning",
-  },
-  {
-    value: "fish-audio",
-    label: "Fish Audio",
-    description: "Fish Audio API — type any model, e.g. s2.1-pro-free",
   },
   {
     value: "qwen-remote",
@@ -30,6 +25,7 @@ export const TTS_PROVIDERS: { value: TTSProvider; label: string; description: st
 
 // ── ElevenLabs model options ──────────────────────────────────────────────────
 export type ElevenLabsModel =
+  | "eleven_v3"
   | "eleven_flash_v2_5"
   | "eleven_turbo_v2_5"
   | "eleven_multilingual_v2"
@@ -41,6 +37,13 @@ export const ELEVENLABS_MODELS: {
   description: string;
   creditCostTier: "low" | "medium" | "high";
 }[] = [
+  {
+    value: "eleven_v3",
+    label: "Eleven v3 (alpha)",
+    description:
+      "Only model that understands audio tags like [laughs], [whispers], [artificial noises] · higher latency · 3,000 char limit",
+    creditCostTier: "high",
+  },
   {
     value: "eleven_flash_v2_5",
     label: "Eleven Flash 2.5",
@@ -76,11 +79,6 @@ export type TTSConfig = {
   elevenLabsKeys?: string[];   // rotation pool (index 0 = primary, matches elevenLabsKey)
   elevenLabsVoiceId?: string;
   elevenLabsModel?: ElevenLabsModel;
-  // Fish Audio
-  fishAudioKey?: string;
-  fishAudioModel?: string;        // free-typed model / header value, e.g. "s2.1-pro-free"
-  fishAudioReferenceId?: string;  // reference_id (voice)
-  fishAudioFormat?: "mp3" | "wav" | "pcm" | "opus";
   // Qwen Remote
   qwenRemoteUrl?: string;
   qwenSpeaker?: string;
@@ -95,22 +93,9 @@ export const DEFAULT_TTS_CONFIG: TTSConfig = {
   elevenLabsKeys: ["", "", "", "", ""],
   elevenLabsVoiceId: "21m00Tcm4TlvDq8ikWAM",
   elevenLabsModel: "eleven_flash_v2_5",
-  fishAudioKey: "",
-  fishAudioModel: "s2.1-pro-free",
-  fishAudioReferenceId: "c4909d7830f7459ea8f15d84802a5d03",
-  fishAudioFormat: "mp3",
   qwenRemoteUrl: "",
   qwenSpeaker: "Vivian",
   gptsovitsRemoteUrl: "",
 };
 
 export const QWEN_SPEAKERS = ["Vivian", "Chelsie", "Cherry", "Ethan", "Aiden", "Ryan"];
-
-// Suggestions only — this is a free-text field, so any model string the user
-// types (current or future Fish Audio models) will work.
-export const FISH_AUDIO_MODEL_SUGGESTIONS = [
-  "s2.1-pro-free",
-  "s1",
-  "speech-1.6",
-  "speech-1.5",
-];
