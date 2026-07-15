@@ -1,4 +1,4 @@
-export type TTSProvider = "koeiromap" | "elevenlabs" | "qwen-remote" | "gpt-sovits";
+export type TTSProvider = "koeiromap" | "elevenlabs" | "fish-audio" | "qwen-remote" | "gpt-sovits";
 
 export const TTS_PROVIDERS: { value: TTSProvider; label: string; description: string }[] = [
   {
@@ -10,6 +10,11 @@ export const TTS_PROVIDERS: { value: TTSProvider; label: string; description: st
     value: "elevenlabs",
     label: "ElevenLabs",
     description: "ElevenLabs API — realistic voice cloning",
+  },
+  {
+    value: "fish-audio",
+    label: "Fish Audio",
+    description: "Fish Audio API — S2.1 Pro voice cloning, supports style tags",
   },
   {
     value: "qwen-remote",
@@ -79,12 +84,28 @@ export type TTSConfig = {
   elevenLabsKeys?: string[];   // rotation pool (index 0 = primary, matches elevenLabsKey)
   elevenLabsVoiceId?: string;
   elevenLabsModel?: ElevenLabsModel;
+  // Fish Audio
+  fishAudioKey?: string;
+  fishAudioModel?: string;         // free-typed model id, e.g. "s2.1-pro-free", "s1"
+  fishAudioReferenceId?: string;   // voice / reference model id
+  fishAudioFormat?: "mp3" | "wav" | "pcm" | "opus";
   // Qwen Remote
   qwenRemoteUrl?: string;
   qwenSpeaker?: string;
   // GPT-SoVITS Remote
   gptsovitsRemoteUrl?: string;
 };
+
+// Just a starting point for the model input's <datalist> — Fish Audio ships
+// new models fairly often, so the model field in the UI is free-typed and
+// accepts any valid model id, not just these.
+export const FISH_AUDIO_MODEL_SUGGESTIONS: string[] = [
+  "s2.1-pro-free",
+  "s1",
+  "s1-mini",
+  "speech-1.6",
+  "speech-1.5",
+];
 
 export const DEFAULT_TTS_CONFIG: TTSConfig = {
   provider: "koeiromap",
@@ -93,6 +114,10 @@ export const DEFAULT_TTS_CONFIG: TTSConfig = {
   elevenLabsKeys: ["", "", "", "", ""],
   elevenLabsVoiceId: "21m00Tcm4TlvDq8ikWAM",
   elevenLabsModel: "eleven_flash_v2_5",
+  fishAudioKey: "",
+  fishAudioModel: "s2.1-pro-free",
+  fishAudioReferenceId: "",
+  fishAudioFormat: "mp3",
   qwenRemoteUrl: "",
   qwenSpeaker: "Vivian",
   gptsovitsRemoteUrl: "",
