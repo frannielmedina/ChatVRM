@@ -127,6 +127,8 @@ export const SettingsPorter = ({
                 ? " (API key included)"
                 : ttsConfig.provider === "koeiromap" && ttsConfig.koeiromapKey
                 ? " (API key included)"
+                : ttsConfig.provider === "fish-audio" && ttsConfig.fishAudioKey
+                ? " (API key included)"
                 : ""}
             </span>
           </li>
