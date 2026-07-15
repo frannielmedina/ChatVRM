@@ -56,8 +56,9 @@ export const ChatLogDialog = ({ messages, onClose }: Props) => {
     URL.revokeObjectURL(url);
   };
 
-  // Strip all bracket tags (emotion + pose) for display
-  const stripTags = (text: string) => text.replace(/\[[a-zA-Z_]*?\]/g, "").trim();
+  // Strip all bracket tags (emotion, pose, and TTS delivery tags like
+  // [artificial noises]) for display
+  const stripTags = (text: string) => text.replace(/\[[a-zA-Z_ ]*?\]/g, "").trim();
 
   return (
     // Backdrop

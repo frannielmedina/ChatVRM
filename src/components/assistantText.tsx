@@ -42,8 +42,10 @@ export const AssistantText = ({
     if (fadeTimerRef.current)   { clearTimeout(fadeTimerRef.current);   fadeTimerRef.current   = null; }
   };
 
-  // Strip emotion tags like [happy] AND pose tags like [bow], [wave], etc.
-  const clean = (msg: string) => msg.replace(/\[([a-zA-Z_]*?)\]/g, "").trim();
+  // Strip emotion tags like [happy], pose tags like [bow]/[wave], and TTS
+  // delivery tags like [laughs] or [artificial noises] — none of these
+  // should ever show up as visible caption text.
+  const clean = (msg: string) => msg.replace(/\[([a-zA-Z_ ]*?)\]/g, "").trim();
 
   // ── Schedule the linger → disappear sequence ────────────────────────────
   const scheduleLinger = (text: string) => {
