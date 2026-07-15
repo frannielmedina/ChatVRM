@@ -27,6 +27,19 @@ export type Screenplay = {
   pose?: string;
 };
 
+// ── Unspoken symbol stripper ────────────────────────────────────────────────
+// Removes symbols that TTS engines either read aloud literally by name
+// ("at sign", "tilde", "hashtag"), mispronounce, or just skip with an odd
+// glitch/pause — none of which sound natural in speech. Normal sentence
+// punctuation (. , ! ? ' " : ; -) is left untouched.
+const UNSPOKEN_SYMBOLS = /[~@#^*_|\\<>{}•§©®™]/g;
+export function stripUnspokenSymbolsForTTS(text: string): string {
+  return text
+    .replace(UNSPOKEN_SYMBOLS, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 // ── Asterisk-action stripper ──────────────────────────────────────────────────
 // Removes *action text* patterns so TTS never reads them aloud.
 // Examples: *giggles*, *nods*, *winks*, *catches the coin and gasps*
@@ -91,18 +104,29 @@ export const textsToScreenplay = (
   for (let i = 0; i < texts.length; i++) {
     const text = texts[i];
 
-    // Extract ALL bracket tags from the text
-    const allTags = [...text.matchAll(/\[([a-zA-Z_]*?)\]/g)].map((m) => m[1]);
+    // Extract ALL bracket tags from the text (now matches multi-word tags
+    // like "[artificial noises]" too, not just single words)
+    const allTags = [...text.matchAll(/\[([a-zA-Z_ ]+?)\]/g)].map((m) => m[1]);
 
     // Split emotion tags from pose tags
     const emotionTag = allTags.find((t) => emotions.includes(t as any));
     const poseTag = allTags.find((t) => ALL_POSE_TAGS.includes(t));
 
-    // Remove bracket tags AND asterisk actions from the spoken text,
-    // then also strip emojis so TTS engines receive clean plain text.
-    let message = text.replace(/\[[a-zA-Z_]*?\]/g, "").trim();
+    // Only strip bracket tags we actually recognize as internal control
+    // codes (emotion/pose, e.g. "[happy]", "[bow]"). Any OTHER bracket tag
+    // — TTS delivery/sound-effect tags like "[laughs]", "[sighs]", or
+    // multi-word ones like "[artificial noises]" — is left in the message
+    // untouched, so TTS engines that support them (e.g. ElevenLabs v3) can
+    // actually render them instead of having them silently deleted or sent
+    // through with literal, unrecognized brackets.
+    const knownControlTags = new Set<string>([...emotions, ...ALL_POSE_TAGS]);
+    let message = text.replace(/\[([a-zA-Z_ ]+?)\]/g, (full, tagName) =>
+      knownControlTags.has(tagName) ? "" : full
+    );
+    message = message.trim();
     message = stripAsteriskActions(message);
     message = stripEmojisForTTS(message);
+    message = stripUnspokenSymbolsForTTS(message);
 
     let expression = prevExpression;
     if (emotionTag && emotions.includes(emotionTag as any)) {
