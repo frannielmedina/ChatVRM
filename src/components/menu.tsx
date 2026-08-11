@@ -16,6 +16,8 @@ import { CaptionStyle } from "./captionSettings";
 import { VisionConfig } from "@/features/vision/visionConfig";
 import { VisionStatus } from "@/features/vision/useVision";
 import { DiscordConfig } from "@/features/discord/discordConfig";
+import { AdBreakConfig } from "@/features/adBreak/adBreakConfig";
+import { AutonomousConfig } from "@/features/autonomous/autonomousConfig";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -38,6 +40,12 @@ type Props = {
   discordConfig: DiscordConfig;
   discordConnected: boolean;
   discordConnectionError: string | null;
+  adBreakConfig: AdBreakConfig;
+  onChangeAdBreakConfig: (config: AdBreakConfig) => void;
+  onTestAdBreak: () => void;
+  autonomousConfig: AutonomousConfig;
+  onChangeAutonomousConfig: (config: AutonomousConfig) => void;
+  autonomousActive: boolean;
   uiVisible: boolean;
   onChangeSystemPrompt: (systemPrompt: string) => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
@@ -85,6 +93,12 @@ export const Menu = ({
   discordConfig,
   discordConnected,
   discordConnectionError,
+  adBreakConfig,
+  onChangeAdBreakConfig,
+  onTestAdBreak,
+  autonomousConfig,
+  onChangeAutonomousConfig,
+  autonomousActive,
   uiVisible,
   onChangeSystemPrompt,
   onChangeAiConfig,
@@ -199,6 +213,13 @@ export const Menu = ({
             </div>
           )}
 
+          {/* Autonomous mode badge */}
+          {autonomousActive && (
+            <div className="flex items-center gap-4 px-12 py-8 bg-primary/20 border border-primary/40 rounded-16 text-primary text-sm font-bold animate-pulse">
+              🤖 Autonomous
+            </div>
+          )}
+
           {/* Screen share active: Stop button + Vision toggle */}
           {screenShareConfig.active && (
             <>
@@ -267,6 +288,11 @@ export const Menu = ({
           discordConfig={discordConfig}
           discordConnected={discordConnected}
           discordConnectionError={discordConnectionError}
+          adBreakConfig={adBreakConfig}
+          onChangeAdBreakConfig={onChangeAdBreakConfig}
+          onTestAdBreak={onTestAdBreak}
+          autonomousConfig={autonomousConfig}
+          onChangeAutonomousConfig={onChangeAutonomousConfig}
           isMobile={isMobile}
           onClickClose={() => setShowSettings(false)}
           onSaveAndClose={handleSaveAndClose}

@@ -23,6 +23,8 @@ import { VisionConfig } from "@/features/vision/visionConfig";
 import { VisionStatus } from "@/features/vision/useVision";
 import { DiscordConfig } from "@/features/discord/discordConfig";
 import { pushTestAlert } from "@/features/alerts/alertQueue";
+import { AdBreakConfig } from "@/features/adBreak/adBreakConfig";
+import { AutonomousConfig } from "@/features/autonomous/autonomousConfig";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -44,6 +46,11 @@ type Props = {
   discordConfig: DiscordConfig;
   discordConnected: boolean;
   discordConnectionError: string | null;
+  adBreakConfig: AdBreakConfig;
+  onChangeAdBreakConfig: (config: AdBreakConfig) => void;
+  onTestAdBreak: () => void;
+  autonomousConfig: AutonomousConfig;
+  onChangeAutonomousConfig: (config: AutonomousConfig) => void;
   isMobile: boolean;
   onClickClose: () => void;
   onSaveAndClose: () => void;
@@ -167,6 +174,11 @@ export const SettingsContent = (props: Props) => {
     discordConfig,
     discordConnected,
     discordConnectionError,
+    adBreakConfig,
+    onChangeAdBreakConfig,
+    onTestAdBreak,
+    autonomousConfig,
+    onChangeAutonomousConfig,
     onClickClose,
     onSaveAndClose,
     onChangeSystemPrompt,
@@ -296,6 +308,78 @@ export const SettingsContent = (props: Props) => {
                 onLoadSettings={onLoadSettings}
               />
 
+              <div className="my-40">
+                <div className="my-16 typography-20 font-bold flex items-center gap-8">
+                  <span>Autonomous Mode</span>
+                  <span
+                    className={`inline-block w-10 h-10 rounded-full ${
+                      autonomousConfig.enabled ? "bg-green-500" : "bg-surface3"
+                    }`}
+                  />
+                </div>
+                <div className="p-16 bg-surface1 rounded-8">
+                  <div className="text-sm text-text-primary/70 mb-12">
+                    When nobody has talked to Miko for a while, she&apos;ll start
+                    talking on her own to keep the stream lively. The moment you
+                    type in chat (or Twitch chat gets a response), autonomous
+                    mode turns off and she responds normally again.
+                  </div>
+                  <label className="flex items-center gap-8 cursor-pointer mb-12">
+                    <input
+                      type="checkbox"
+                      checked={autonomousConfig.enabled}
+                      onChange={(e) =>
+                        onChangeAutonomousConfig({
+                          ...autonomousConfig,
+                          enabled: e.target.checked,
+                        })
+                      }
+                      className="w-16 h-16 accent-primary"
+                    />
+                    <span>Enable autonomous mode</span>
+                  </label>
+                  <div className="flex flex-wrap gap-16">
+                    <div>
+                      <div className="font-bold mb-4 text-sm">
+                        Idle time before it kicks in (seconds)
+                      </div>
+                      <input
+                        type="number"
+                        min={30}
+                        step={10}
+                        className="px-16 py-8 w-[140px] bg-surface3 hover:bg-surface3-hover rounded-8"
+                        value={autonomousConfig.idleThresholdSeconds}
+                        onChange={(e) =>
+                          onChangeAutonomousConfig({
+                            ...autonomousConfig,
+                            idleThresholdSeconds: Math.max(30, Number(e.target.value) || 0),
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <div className="font-bold mb-4 text-sm">
+                        Time between monologue lines (seconds)
+                      </div>
+                      <input
+                        type="number"
+                        min={10}
+                        step={5}
+                        className="px-16 py-8 w-[140px] bg-surface3 hover:bg-surface3-hover rounded-8"
+                        value={autonomousConfig.monologueIntervalSeconds}
+                        onChange={(e) =>
+                          onChangeAutonomousConfig({
+                            ...autonomousConfig,
+                            monologueIntervalSeconds: Math.max(10, Number(e.target.value) || 0),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+
               {chatLog.length > 0 && (
                 <div className="my-40">
                   <div className="my-8">
@@ -410,6 +494,49 @@ export const SettingsContent = (props: Props) => {
                 onConnect={onTwitchConnect}
                 onDisconnect={onTwitchDisconnect}
               />
+
+              <div className="my-40">
+                <div className="my-16 typography-20 font-bold">Ad Break Countdown</div>
+                <div className="p-16 bg-surface1 rounded-8">
+                  <div className="text-sm text-text-primary/70 mb-12">
+                    Shows an &quot;AD STARTS IN:&quot; countdown top-right. Miko
+                    reminds viewers to subscribe when it starts, and welcomes
+                    everyone back when it hits zero — as long as Twitch is
+                    connected. Trigger it manually below, or type{" "}
+                    <code className="bg-surface3 px-4 rounded-4">!ad</code> in
+                    your Twitch chat (mods/broadcaster only).
+                  </div>
+                  <label className="flex items-center gap-8 cursor-pointer mb-12">
+                    <input
+                      type="checkbox"
+                      checked={adBreakConfig.enabled}
+                      onChange={(e) =>
+                        onChangeAdBreakConfig({ ...adBreakConfig, enabled: e.target.checked })
+                      }
+                      className="w-16 h-16 accent-primary"
+                    />
+                    <span>Enable ad break countdown</span>
+                  </label>
+                  <div className="mb-12">
+                    <div className="font-bold mb-4 text-sm">Countdown length (seconds)</div>
+                    <input
+                      type="number"
+                      min={10}
+                      step={5}
+                      className="px-16 py-8 w-[140px] bg-surface3 hover:bg-surface3-hover rounded-8"
+                      value={adBreakConfig.durationSeconds}
+                      onChange={(e) =>
+                        onChangeAdBreakConfig({
+                          ...adBreakConfig,
+                          durationSeconds: Math.max(10, Number(e.target.value) || 0),
+                        })
+                      }
+                    />
+                  </div>
+                  <TextButton onClick={onTestAdBreak}>Test Ad Break</TextButton>
+                </div>
+              </div>
+
               <div className="my-40">
                 <div className="my-16 typography-20 font-bold">Alerts</div>
                 <div className="p-16 bg-surface1 rounded-8">
