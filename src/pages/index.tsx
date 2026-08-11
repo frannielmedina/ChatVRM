@@ -54,6 +54,13 @@ import {
 import { discordClient } from "@/features/discord/discordClient";
 import { DiscordOverlay } from "@/components/discordOverlay";
 import { AlertOverlay } from "@/components/alertOverlay";
+import { AdBreakConfig, DEFAULT_AD_BREAK_CONFIG } from "@/features/adBreak/adBreakConfig";
+import { useAdBreak } from "@/features/adBreak/useAdBreak";
+import {
+  AutonomousConfig,
+  DEFAULT_AUTONOMOUS_CONFIG,
+} from "@/features/autonomous/autonomousConfig";
+import { useAutonomousMode } from "@/features/autonomous/useAutonomousMode";
 import { DiscordMessage, DiscordVoiceEvent } from "@/features/discord/discordConfig";
 
 // VRM model localStorage key
@@ -111,6 +118,13 @@ export default function Home() {
   );
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [vdoninjaUrl, setVdoninjaUrl] = useState("");
+
+  // Ad break + autonomous mode
+  const [adBreakConfig, setAdBreakConfig] = useState<AdBreakConfig>(DEFAULT_AD_BREAK_CONFIG);
+  const [autonomousConfig, setAutonomousConfig] = useState<AutonomousConfig>(
+    DEFAULT_AUTONOMOUS_CONFIG
+  );
+  const chatProcessingRef = useRef(false);
 
   // ── Twitch message queue ───────────────────────────────────────────────────
   const twitchQueueRef = useRef<TwitchMessage[]>([]);
@@ -366,6 +380,39 @@ export default function Home() {
     sendChatRef.current = handleSendChat;
   }, [handleSendChat]);
 
+  useEffect(() => {
+    chatProcessingRef.current = chatProcessing;
+  }, [chatProcessing]);
+
+  // ── Ad break countdown ─────────────────────────────────────────────────────
+  const sendPromptStable = useCallback(
+    (text: string) => sendChatRef.current(text),
+    []
+  );
+
+  const { startAdCountdown } = useAdBreak({
+    config: adBreakConfig,
+    isTwitchActive: () => twitchConfig.enabled && twitchConnected,
+    sendPrompt: sendPromptStable,
+  });
+
+  // ── Autonomous mode ────────────────────────────────────────────────────────
+  const { isActive: autonomousActive, notifyActivity } = useAutonomousMode({
+    config: autonomousConfig,
+    isChatProcessingRef: chatProcessingRef,
+    sendPrompt: sendPromptStable,
+  });
+
+  // Wraps the local message box's send so it also counts as "real activity"
+  // for autonomous mode (deactivates it / resets the idle clock).
+  const handleLocalSendChat = useCallback(
+    async (text: string) => {
+      notifyActivity();
+      await sendChatRef.current(text);
+    },
+    [notifyActivity]
+  );
+
   // ── Twitch queue processor ─────────────────────────────────────────────────
   // Shows exactly one message on screen: the one Miko is currently replying
   // to. Drops any message from a user who got banned while it was waiting in
@@ -383,6 +430,7 @@ export default function Home() {
       }
 
       setActiveTwitchMessage(next);
+      notifyActivity();
       const prompt = `[Twitch chat] ${next.username}: ${next.message}`;
       await sendChatRef.current(prompt);
 
@@ -391,7 +439,7 @@ export default function Home() {
     }
 
     twitchProcessingRef.current = false;
-  }, []);
+  }, [notifyActivity]);
 
   // ── Vision ─────────────────────────────────────────────────────────────────
   const effectiveVisionConfig: VisionConfig = {
@@ -440,6 +488,8 @@ export default function Home() {
     const cmdUnsub = twitchClient.onCommand((command) => {
       if (command === "!reset") {
         handleResetCommand();
+      } else if (command === "!ad") {
+        startAdCountdown();
       }
     });
 
@@ -463,7 +513,7 @@ export default function Home() {
     twitchCmdUnsubRef.current = cmdUnsub;
     twitchBanUnsubRef.current = banUnsub;
     setTwitchConnected(true);
-  }, [twitchConfig, processTwitchQueue, handleResetCommand]);
+  }, [twitchConfig, processTwitchQueue, handleResetCommand, startAdCountdown]);
 
   const handleTwitchDisconnect = useCallback(() => {
     twitchClient.disconnect();
@@ -616,7 +666,7 @@ export default function Home() {
       >
         <MessageInputContainer
           isChatProcessing={chatProcessing}
-          onChatProcessStart={handleSendChat}
+          onChatProcessStart={handleLocalSendChat}
         />
       </div>
 
@@ -641,6 +691,12 @@ export default function Home() {
         discordConfig={discordConfig}
         discordConnected={discordConnected}
         discordConnectionError={discordConnectionError}
+        adBreakConfig={adBreakConfig}
+        onChangeAdBreakConfig={setAdBreakConfig}
+        onTestAdBreak={() => startAdCountdown()}
+        autonomousConfig={autonomousConfig}
+        onChangeAutonomousConfig={setAutonomousConfig}
+        autonomousActive={autonomousActive}
         uiVisible={uiVisible}
         onChangeAiConfig={setAiConfig}
         onChangeSystemPrompt={setSystemPrompt}
