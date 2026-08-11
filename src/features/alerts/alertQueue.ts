@@ -71,6 +71,15 @@ class AlertQueueSingleton {
     if (this.queue.length !== before) this.emit();
   }
 
+  // Patch fields on an existing alert in place (e.g. a ticking countdown
+  // updating its subtitle every second) without re-animating it in/out.
+  update(id: string, partial: Partial<Omit<AlertItem, "id">>) {
+    const idx = this.queue.findIndex((a) => a.id === id);
+    if (idx === -1) return;
+    this.queue[idx] = { ...this.queue[idx], ...partial };
+    this.emit();
+  }
+
   clear() {
     this.queue = [];
     this.emit();
