@@ -53,6 +53,7 @@ import {
 } from "@/features/discord/discordConfig";
 import { discordClient } from "@/features/discord/discordClient";
 import { DiscordOverlay } from "@/components/discordOverlay";
+import { AlertOverlay } from "@/components/alertOverlay";
 import { DiscordMessage, DiscordVoiceEvent } from "@/features/discord/discordConfig";
 
 // VRM model localStorage key
@@ -691,6 +692,10 @@ export default function Home() {
           showOverlay={discordConfig.showOverlay}
         />
       )}
+
+      {/* Top-right alert stack — ad countdown, Twitch alerts, polls, etc.
+          all render here automatically by calling alertQueue.push(). */}
+      <AlertOverlay />
     </div>
   );
 }
