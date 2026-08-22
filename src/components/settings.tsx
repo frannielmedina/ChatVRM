@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { IconButton } from "./iconButton";
 import { TextButton } from "./textButton";
+import { Link } from "./link";
 import { Message } from "@/features/messages/messages";
 import { TTSSettings } from "./ttsSettings";
 import { TwitchSettings } from "./twitchSettings";
@@ -51,6 +52,14 @@ type Props = {
   onTestAdBreak: () => void;
   autonomousConfig: AutonomousConfig;
   onChangeAutonomousConfig: (config: AutonomousConfig) => void;
+  eventSubStatus: "idle" | "connecting" | "connected" | "error" | "disconnected";
+  eventSubError: string | null;
+  onTestFollow: () => void;
+  onTestRaid: () => void;
+  onTestSub: () => void;
+  onTestResub: () => void;
+  onTestStreak: () => void;
+  onTestBits: () => void;
   isMobile: boolean;
   onClickClose: () => void;
   onSaveAndClose: () => void;
@@ -179,6 +188,14 @@ export const SettingsContent = (props: Props) => {
     onTestAdBreak,
     autonomousConfig,
     onChangeAutonomousConfig,
+    eventSubStatus,
+    eventSubError,
+    onTestFollow,
+    onTestRaid,
+    onTestSub,
+    onTestResub,
+    onTestStreak,
+    onTestBits,
     onClickClose,
     onSaveAndClose,
     onChangeSystemPrompt,
@@ -538,13 +555,109 @@ export const SettingsContent = (props: Props) => {
               </div>
 
               <div className="my-40">
+                <div className="my-16 typography-20 font-bold flex items-center gap-8">
+                  <span>Follow / Raid / Sub / Bits Alerts</span>
+                  <span
+                    className={`inline-block w-10 h-10 rounded-full ${
+                      eventSubStatus === "connected"
+                        ? "bg-green-500"
+                        : eventSubStatus === "connecting"
+                        ? "bg-yellow-500"
+                        : eventSubStatus === "error"
+                        ? "bg-red-500"
+                        : "bg-surface3"
+                    }`}
+                  />
+                  <span className="text-sm font-normal text-text-primary/60">
+                    {eventSubStatus === "connected"
+                      ? "Connected"
+                      : eventSubStatus === "connecting"
+                      ? "Connecting…"
+                      : eventSubStatus === "error"
+                      ? "Error"
+                      : "Not connected"}
+                  </span>
+                </div>
+                <div className="p-16 bg-surface1 rounded-8">
+                  <div className="text-sm text-text-primary/70 mb-12">
+                    Live alerts for new followers, raids, subs, resubs
+                    (including shared streaks), and bits. These use Twitch&apos;s
+                    EventSub system, which needs a bit more than the chat
+                    connection above:
+                  </div>
+                  <ol className="text-sm text-text-primary/70 mb-12 pl-20 list-decimal space-y-4">
+                    <li>
+                      Register a free app at{" "}
+                      <Link
+                        url="https://dev.twitch.tv/console/apps"
+                        label="dev.twitch.tv/console/apps"
+                      />
+                      . Any name works; set the OAuth Redirect URL to{" "}
+                      <code className="bg-surface3 px-4 rounded-4">http://localhost</code>{" "}
+                      (or anything — it&apos;s not used by this flow). Copy the{" "}
+                      <strong>Client ID</strong> it gives you into the field
+                      below.
+                    </li>
+                    <li>
+                      Generate a token with these scopes:{" "}
+                      <code className="bg-surface3 px-4 rounded-4">
+                        moderator:read:followers channel:read:subscriptions bits:read
+                      </code>{" "}
+                      — e.g. at{" "}
+                      <Link
+                        url="https://twitchtokengenerator.com/"
+                        label="twitchtokengenerator.com"
+                      />{" "}
+                      (choose &quot;Bot Chat Token&quot;, then check those three
+                      scopes plus chat if you want one token for both). Paste
+                      it into the <strong>OAuth Token</strong> field above,
+                      in the Twitch Integration section.
+                    </li>
+                    <li>Enable alerts below, then hit Connect to Twitch above.</li>
+                  </ol>
+                  <label className="flex items-center gap-8 cursor-pointer mb-12">
+                    <input
+                      type="checkbox"
+                      checked={twitchConfig.alertsEnabled}
+                      onChange={(e) =>
+                        onChangeTwitchConfig({ ...twitchConfig, alertsEnabled: e.target.checked })
+                      }
+                      className="w-16 h-16 accent-primary"
+                    />
+                    <span>Enable follow/raid/sub/bits alerts</span>
+                  </label>
+                  <div className="mb-16">
+                    <div className="font-bold mb-4">Client ID</div>
+                    <input
+                      className="text-ellipsis px-16 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8"
+                      type="text"
+                      placeholder="your app's Client ID"
+                      value={twitchConfig.clientId || ""}
+                      onChange={(e) =>
+                        onChangeTwitchConfig({ ...twitchConfig, clientId: e.target.value })
+                      }
+                    />
+                  </div>
+                  {eventSubStatus === "error" && eventSubError && (
+                    <div className="text-sm text-secondary mb-12">{eventSubError}</div>
+                  )}
+                  <div className="flex flex-wrap gap-8">
+                    <TextButton onClick={onTestFollow}>Test Follow</TextButton>
+                    <TextButton onClick={onTestRaid}>Test Raid</TextButton>
+                    <TextButton onClick={onTestSub}>Test Sub</TextButton>
+                    <TextButton onClick={onTestResub}>Test Resub</TextButton>
+                    <TextButton onClick={onTestStreak}>Test Streak</TextButton>
+                    <TextButton onClick={onTestBits}>Test Bits</TextButton>
+                  </div>
+                </div>
+              </div>
+
+              <div className="my-40">
                 <div className="my-16 typography-20 font-bold">Alerts</div>
                 <div className="p-16 bg-surface1 rounded-8">
                   <div className="text-sm text-text-primary/70 mb-12">
                     Alert cards render stacked in the top-right corner of the screen.
-                    Use this to confirm the overlay is working. Per-alert-type test
-                    buttons (follow, raid, sub, bits, streak, ad countdown) are added
-                    as those features are wired up.
+                    Use this to confirm the overlay is working generally.
                   </div>
                   <TextButton onClick={pushTestAlert}>Test Alert</TextButton>
                 </div>

@@ -65,8 +65,10 @@ export const TwitchSettings = ({
             onChange={(e) => update({ oauthToken: e.target.value })}
           />
           <div className="text-xs text-text-primary/60 mt-4">
-            Get token at{" "}
-            <Link url="https://twitchapps.com/tmi/" label="twitchapps.com/tmi" />
+            Get a chat-only token at{" "}
+            <Link url="https://twitchapps.com/tmi/" label="twitchapps.com/tmi" />.
+            Want follow/raid/sub/bits alerts too? See the walkthrough further
+            down this tab — it needs a token with a few extra scopes instead.
           </div>
         </div>
 

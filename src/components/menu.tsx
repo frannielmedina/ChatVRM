@@ -46,6 +46,14 @@ type Props = {
   autonomousConfig: AutonomousConfig;
   onChangeAutonomousConfig: (config: AutonomousConfig) => void;
   autonomousActive: boolean;
+  eventSubStatus: "idle" | "connecting" | "connected" | "error" | "disconnected";
+  eventSubError: string | null;
+  onTestFollow: () => void;
+  onTestRaid: () => void;
+  onTestSub: () => void;
+  onTestResub: () => void;
+  onTestStreak: () => void;
+  onTestBits: () => void;
   uiVisible: boolean;
   onChangeSystemPrompt: (systemPrompt: string) => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
@@ -99,6 +107,14 @@ export const Menu = ({
   autonomousConfig,
   onChangeAutonomousConfig,
   autonomousActive,
+  eventSubStatus,
+  eventSubError,
+  onTestFollow,
+  onTestRaid,
+  onTestSub,
+  onTestResub,
+  onTestStreak,
+  onTestBits,
   uiVisible,
   onChangeSystemPrompt,
   onChangeAiConfig,
@@ -291,6 +307,14 @@ export const Menu = ({
           adBreakConfig={adBreakConfig}
           onChangeAdBreakConfig={onChangeAdBreakConfig}
           onTestAdBreak={onTestAdBreak}
+          eventSubStatus={eventSubStatus}
+          eventSubError={eventSubError}
+          onTestFollow={onTestFollow}
+          onTestRaid={onTestRaid}
+          onTestSub={onTestSub}
+          onTestResub={onTestResub}
+          onTestStreak={onTestStreak}
+          onTestBits={onTestBits}
           autonomousConfig={autonomousConfig}
           onChangeAutonomousConfig={onChangeAutonomousConfig}
           isMobile={isMobile}
