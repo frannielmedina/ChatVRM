@@ -27,6 +27,12 @@ export type TwitchConfig = {
   oauthToken?: string;
   readChat: boolean;
   respondToChat: boolean;
+  // ── EventSub (follow/raid/sub/resub/bits/streak alerts) ──────────────────
+  // A Twitch app's Client ID from dev.twitch.tv/console/apps. The oauthToken
+  // above is reused as the user access token, as long as it was generated
+  // with the right scopes (see Settings > Twitch for the list).
+  clientId?: string;
+  alertsEnabled: boolean;
 };
 
 export const DEFAULT_TWITCH_CONFIG: TwitchConfig = {
@@ -35,6 +41,8 @@ export const DEFAULT_TWITCH_CONFIG: TwitchConfig = {
   oauthToken: "",
   readChat: true,
   respondToChat: false,
+  clientId: "",
+  alertsEnabled: true,
 };
 
 type MessageHandler = (msg: TwitchMessage) => void;
