@@ -61,6 +61,15 @@ import {
   DEFAULT_AUTONOMOUS_CONFIG,
 } from "@/features/autonomous/autonomousConfig";
 import { useAutonomousMode } from "@/features/autonomous/useAutonomousMode";
+import { eventSubClient } from "@/features/twitch/eventSubClient";
+import {
+  fireFollowAlert,
+  fireRaidAlert,
+  fireSubAlert,
+  fireResubAlert,
+  fireStreakAlert,
+  fireBitsAlert,
+} from "@/features/twitch/twitchAlerts";
 import { DiscordMessage, DiscordVoiceEvent } from "@/features/discord/discordConfig";
 
 // VRM model localStorage key
@@ -125,6 +134,12 @@ export default function Home() {
     DEFAULT_AUTONOMOUS_CONFIG
   );
   const chatProcessingRef = useRef(false);
+
+  // Twitch EventSub (follow/raid/sub/resub/bits/streak alerts)
+  const [eventSubStatus, setEventSubStatus] = useState<
+    "idle" | "connecting" | "connected" | "error" | "disconnected"
+  >("idle");
+  const [eventSubError, setEventSubError] = useState<string | null>(null);
 
   // ── Twitch message queue ───────────────────────────────────────────────────
   const twitchQueueRef = useRef<TwitchMessage[]>([]);
@@ -413,6 +428,32 @@ export default function Home() {
     [notifyActivity]
   );
 
+  // ── Alert test buttons (Settings > Twitch) ────────────────────────────────
+  const handleTestFollow = useCallback(
+    () => fireFollowAlert("TestFollower", sendPromptStable),
+    [sendPromptStable]
+  );
+  const handleTestRaid = useCallback(
+    () => fireRaidAlert("TestRaider", 25, sendPromptStable),
+    [sendPromptStable]
+  );
+  const handleTestSub = useCallback(
+    () => fireSubAlert("TestSubscriber", "1000", sendPromptStable),
+    [sendPromptStable]
+  );
+  const handleTestResub = useCallback(
+    () => fireResubAlert("TestSubscriber", 8, sendPromptStable),
+    [sendPromptStable]
+  );
+  const handleTestStreak = useCallback(
+    () => fireStreakAlert("TestSubscriber", 3, sendPromptStable),
+    [sendPromptStable]
+  );
+  const handleTestBits = useCallback(
+    () => fireBitsAlert("TestCheerer", 500, "Great stream!", sendPromptStable),
+    [sendPromptStable]
+  );
+
   // ── Twitch queue processor ─────────────────────────────────────────────────
   // Shows exactly one message on screen: the one Miko is currently replying
   // to. Drops any message from a user who got banned while it was waiting in
@@ -513,10 +554,41 @@ export default function Home() {
     twitchCmdUnsubRef.current = cmdUnsub;
     twitchBanUnsubRef.current = banUnsub;
     setTwitchConnected(true);
-  }, [twitchConfig, processTwitchQueue, handleResetCommand, startAdCountdown]);
+
+    // ── EventSub alerts (follow/raid/sub/resub/bits/streak) ──────────────────
+    // Reuses the same OAuth token as chat, as long as it was generated with
+    // the broader scopes EventSub needs (see Settings > Twitch).
+    if (twitchConfig.alertsEnabled && twitchConfig.clientId && twitchConfig.oauthToken) {
+      eventSubClient.connect({
+        clientId: twitchConfig.clientId,
+        accessToken: twitchConfig.oauthToken,
+        channelLogin: twitchConfig.channel,
+        handlers: {
+          onFollow: (name) => fireFollowAlert(name, sendPromptStable),
+          onRaid: (name, viewers) => fireRaidAlert(name, viewers, sendPromptStable),
+          onSub: (name, tier) => fireSubAlert(name, tier, sendPromptStable),
+          onResub: (name, months, streak) => {
+            if (streak !== null) {
+              fireStreakAlert(name, streak, sendPromptStable);
+            } else {
+              fireResubAlert(name, months, sendPromptStable);
+            }
+          },
+          onBits: (name, bits, message) => fireBitsAlert(name, bits, message, sendPromptStable),
+          onStatus: (status, detail) => {
+            setEventSubStatus(status === "disconnected" ? "disconnected" : status);
+            setEventSubError(detail ?? null);
+          },
+        },
+      });
+    }
+  }, [twitchConfig, processTwitchQueue, handleResetCommand, startAdCountdown, sendPromptStable]);
 
   const handleTwitchDisconnect = useCallback(() => {
     twitchClient.disconnect();
+    eventSubClient.disconnect();
+    setEventSubStatus("idle");
+    setEventSubError(null);
     setTwitchConnected(false);
     twitchQueueRef.current = [];
     twitchProcessingRef.current = false;
@@ -536,6 +608,7 @@ export default function Home() {
       twitchUnsubRef.current?.();
       twitchCmdUnsubRef.current?.();
       twitchBanUnsubRef.current?.();
+      eventSubClient.disconnect();
     };
   }, []);
 
@@ -697,6 +770,14 @@ export default function Home() {
         autonomousConfig={autonomousConfig}
         onChangeAutonomousConfig={setAutonomousConfig}
         autonomousActive={autonomousActive}
+        eventSubStatus={eventSubStatus}
+        eventSubError={eventSubError}
+        onTestFollow={handleTestFollow}
+        onTestRaid={handleTestRaid}
+        onTestSub={handleTestSub}
+        onTestResub={handleTestResub}
+        onTestStreak={handleTestStreak}
+        onTestBits={handleTestBits}
         uiVisible={uiVisible}
         onChangeAiConfig={setAiConfig}
         onChangeSystemPrompt={setSystemPrompt}
