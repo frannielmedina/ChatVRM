@@ -1,6 +1,26 @@
 import { Message } from "../messages/messages";
 import { AIProviderConfig } from "./aiProviders";
 
+// Thrown specifically for HTTP 429 responses so callers can show a helpful
+// message and/or retry, instead of the request just silently vanishing.
+export class RateLimitError extends Error {
+  retryAfterMs: number;
+  constructor(message: string, retryAfterMs: number) {
+    super(message);
+    this.name = "RateLimitError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+function parseRetryAfterMs(res: Response): number {
+  const header = res.headers.get("retry-after");
+  if (header) {
+    const seconds = Number(header);
+    if (!Number.isNaN(seconds)) return seconds * 1000;
+  }
+  return 5000; // sane default if the provider doesn't send one
+}
+
 // ── Token limits per provider (free tier safe values) ─────────────────────────
 const MAX_TOKENS_BY_PROVIDER: Partial<Record<string, number>> = {
   groq:       800,
@@ -338,6 +358,12 @@ async function getChatResponseStreamOpenAICompat(
   });
 
   if (!res.ok || !res.body) {
+    if (res.status === 429) {
+      throw new RateLimitError(
+        `${config.provider} rate limit reached`,
+        parseRetryAfterMs(res)
+      );
+    }
     const err = await res.text();
     throw new Error(`${config.provider} error ${res.status}: ${err}`);
   }
@@ -405,10 +431,25 @@ export async function getChatResponseStream(
   messages: Message[],
   config: AIProviderConfig
 ): Promise<ReadableStream> {
-  if (config.provider === "google") {
-    return getChatResponseStreamGoogle(messages, config);
+  const attempt = () =>
+    config.provider === "google"
+      ? getChatResponseStreamGoogle(messages, config)
+      : getChatResponseStreamOpenAICompat(messages, config);
+
+  try {
+    return await attempt();
+  } catch (e) {
+    // One automatic retry on rate limit, capped at a short wait so the
+    // character doesn't just go silent for the provider's full window —
+    // if that also fails, the caller shows a message instead of hanging.
+    if (e instanceof RateLimitError) {
+      const waitMs = Math.min(e.retryAfterMs, 8000);
+      console.warn(`[${config.provider}] rate limited, retrying in ${waitMs}ms`);
+      await new Promise((r) => setTimeout(r, waitMs));
+      return await attempt();
+    }
+    throw e;
   }
-  return getChatResponseStreamOpenAICompat(messages, config);
 }
 
 // Non-streaming fallback
