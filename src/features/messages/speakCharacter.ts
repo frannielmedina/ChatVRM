@@ -46,22 +46,45 @@ const createSpeakCharacter = () => {
       return buffer;
     });
 
-    prevFetchPromise = fetchPromise;
+    // Defensive: prevFetchPromise/prevSpeakPromise are module-level and
+    // chained across every call. If either ever rejected without being
+    // caught, every future call would inherit that rejection forever and
+    // silently stop working. Catching here guarantees the shared chain
+    // always resolves, no matter what goes wrong in one call.
+    prevFetchPromise = fetchPromise.catch((e) => {
+      console.error("[speakCharacter] fetch chain error", e);
+      return null;
+    });
+
     prevSpeakPromise = Promise.all([fetchPromise, prevSpeakPromise]).then(
-      ([audioBuffer]) => {
+      async ([audioBuffer]) => {
         onStart?.();
         if (!audioBuffer) return;
 
         // ── Signal TTS start ──────────────────────────────────────────────
         markTtsStart();
 
-        return viewer.model?.speak(audioBuffer, screenplay);
+        try {
+          await viewer.model?.speak(audioBuffer, screenplay);
+        } catch (e) {
+          console.error("[speakCharacter] playback error", e);
+        } finally {
+          markTtsEnd();
+        }
+      },
+      (e) => {
+        // Should be unreachable now that fetchPromise/prevSpeakPromise are
+        // both guaranteed to resolve, but kept as a last-resort safety net.
+        console.error("[speakCharacter] chain error", e);
+        onStart?.();
       }
     );
 
+    prevSpeakPromise = prevSpeakPromise.catch((e) => {
+      console.error("[speakCharacter] unexpected chain error", e);
+    });
+
     prevSpeakPromise.then(() => {
-      // ── Signal TTS end ────────────────────────────────────────────────
-      markTtsEnd();
       onComplete?.();
     });
   };
