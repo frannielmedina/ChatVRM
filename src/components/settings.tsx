@@ -602,18 +602,29 @@ export const SettingsContent = (props: Props) => {
                       Generate a token with these scopes:{" "}
                       <code className="bg-surface3 px-4 rounded-4">
                         moderator:read:followers channel:read:subscriptions bits:read
+                        channel:manage:polls channel:manage:predictions
                       </code>{" "}
                       — e.g. at{" "}
                       <Link
                         url="https://twitchtokengenerator.com/"
                         label="twitchtokengenerator.com"
                       />{" "}
-                      (choose &quot;Bot Chat Token&quot;, then check those three
+                      (choose &quot;Bot Chat Token&quot;, then check those
                       scopes plus chat if you want one token for both). Paste
                       it into the <strong>OAuth Token</strong> field above,
                       in the Twitch Integration section.
                     </li>
                     <li>Enable alerts below, then hit Connect to Twitch above.</li>
+                    <li>
+                      Once connected, type{" "}
+                      <code className="bg-surface3 px-4 rounded-4">/poll Question? | A | B</code>{" "}
+                      or{" "}
+                      <code className="bg-surface3 px-4 rounded-4">
+                        /prediction Question? | A | B
+                      </code>{" "}
+                      in the chat box to start a real Twitch poll/prediction —
+                      Miko can also start one on her own if you ask her to.
+                    </li>
                   </ol>
                   <label className="flex items-center gap-8 cursor-pointer mb-12">
                     <input
