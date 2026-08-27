@@ -102,6 +102,27 @@ export class Viewer {
     this._camera.updateProjectionMatrix();
   }
 
+  // Projects the VRM's head bone to viewport percentage coordinates — used
+  // by the emote wall so falling emotes know where to "land". Returns null
+  // if there's no model loaded yet or the canvas isn't laid out.
+  public getHeadScreenPosition(): { xPct: number; yPct: number } | null {
+    if (!this._camera || !this._renderer || !this.model?.vrm) return null;
+    const headNode = this.model.vrm.humanoid.getNormalizedBoneNode("head");
+    if (!headNode) return null;
+
+    const headWPos = headNode.getWorldPosition(new THREE.Vector3());
+    const ndc = headWPos.clone().project(this._camera); // x,y in -1..1
+    const rect = this._renderer.domElement.getBoundingClientRect();
+
+    const xPx = rect.left + ((ndc.x + 1) / 2) * rect.width;
+    const yPx = rect.top + ((1 - ndc.y) / 2) * rect.height;
+
+    return {
+      xPct: (xPx / window.innerWidth) * 100,
+      yPct: (yPx / window.innerHeight) * 100,
+    };
+  }
+
   public resetCamera() {
     if (this._isScreenShareFraming) {
       this.applyScreenShareFraming();
