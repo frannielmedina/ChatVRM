@@ -28,20 +28,31 @@ export class LipSync {
   }
 
   public async playFromArrayBuffer(buffer: ArrayBuffer, onEnded?: () => void) {
-    const audioBuffer = await this.audio.decodeAudioData(buffer);
-    const bufferSource = this.audio.createBufferSource();
-    bufferSource.buffer = audioBuffer;
-    bufferSource.connect(this.audio.destination);
-    bufferSource.connect(this.analyser);
-    bufferSource.start();
-    if (onEnded) {
-      bufferSource.addEventListener("ended", onEnded);
+    try {
+      const audioBuffer = await this.audio.decodeAudioData(buffer);
+      const bufferSource = this.audio.createBufferSource();
+      bufferSource.buffer = audioBuffer;
+      bufferSource.connect(this.audio.destination);
+      bufferSource.connect(this.analyser);
+      bufferSource.start();
+      if (onEnded) {
+        bufferSource.addEventListener("ended", onEnded);
+      }
+    } catch (e) {
+      // decodeAudioData rejects if the TTS backend ever returns something
+      // that isn't valid audio (an error page, empty body, truncated
+      // stream, etc). Without this catch, that rejection vanishes into an
+      // unawaited promise and onEnded never fires — which permanently
+      // hangs the whole chat pipeline waiting for a callback that will
+      // never come. Always call onEnded so the app can recover.
+      console.error("[LipSync] Failed to decode/play TTS audio:", e);
+      onEnded?.();
     }
   }
 
   public async playFromURL(url: string, onEnded?: () => void) {
     const res = await fetch(url);
     const buffer = await res.arrayBuffer();
-    this.playFromArrayBuffer(buffer, onEnded);
+    await this.playFromArrayBuffer(buffer, onEnded);
   }
 }
