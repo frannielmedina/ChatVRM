@@ -70,6 +70,13 @@ import {
   fireStreakAlert,
   fireBitsAlert,
 } from "@/features/twitch/twitchAlerts";
+import { EmoteWallOverlay } from "@/components/emoteWallOverlay";
+import { spawnEmojiFromChat, setChannelEmotes } from "@/features/emoteWall/emoteWallQueue";
+import { extractEmojis } from "@/features/emoteWall/emojiDetect";
+import { fetchChannelEmoteUrls } from "@/features/twitch/twitchEmotes";
+import { pollPredictionStore } from "@/features/pollPrediction/pollPredictionStore";
+import { parseSlashCommand, extractAiDirective } from "@/features/pollPrediction/pollParser";
+import { createTwitchPoll, createTwitchPrediction } from "@/features/twitch/twitchPollsApi";
 import { DiscordMessage, DiscordVoiceEvent } from "@/features/discord/discordConfig";
 
 // VRM model localStorage key
@@ -140,6 +147,7 @@ export default function Home() {
     "idle" | "connecting" | "connected" | "error" | "disconnected"
   >("idle");
   const [eventSubError, setEventSubError] = useState<string | null>(null);
+  const twitchBroadcasterIdRef = useRef<string>("");
 
   // ── Twitch message queue ───────────────────────────────────────────────────
   const twitchQueueRef = useRef<TwitchMessage[]>([]);
@@ -355,7 +363,38 @@ export default function Home() {
         reader.releaseLock();
       }
 
-      const cleanedResponse = stripAsteriskActions(fullResponse);
+      const rawCleaned = stripAsteriskActions(fullResponse);
+      if (!rawCleaned.trim()) {
+        setChatProcessing(false);
+        return;
+      }
+
+      // If the AI decided to start a poll/prediction (wrote a
+      // "[POLL: ...]" / "[PREDICTION: ...]" tag), pull that out, fire the
+      // Twitch API call, and don't speak the raw tag syntax aloud.
+      const { cleanedText: cleanedResponse, directive } = extractAiDirective(rawCleaned);
+      if (directive && twitchConfig.clientId && twitchConfig.oauthToken && twitchBroadcasterIdRef.current) {
+        const create =
+          directive.kind === "poll"
+            ? createTwitchPoll(
+                twitchConfig.clientId,
+                twitchConfig.oauthToken,
+                twitchBroadcasterIdRef.current,
+                directive.question,
+                directive.options
+              )
+            : createTwitchPrediction(
+                twitchConfig.clientId,
+                twitchConfig.oauthToken,
+                twitchBroadcasterIdRef.current,
+                directive.question,
+                directive.options
+              );
+        create.then((r) => {
+          if (!r.ok) console.error(`[${directive.kind}] Failed to create:`, r.error);
+        });
+      }
+
       if (!cleanedResponse.trim()) {
         setChatProcessing(false);
         return;
@@ -388,7 +427,7 @@ export default function Home() {
         );
       });
     },
-    [systemPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam]
+    [systemPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam, twitchConfig]
   );
 
   useEffect(() => {
@@ -419,13 +458,50 @@ export default function Home() {
   });
 
   // Wraps the local message box's send so it also counts as "real activity"
-  // for autonomous mode (deactivates it / resets the idle clock).
+  // for autonomous mode (deactivates it / resets the idle clock). Also
+  // intercepts "/poll ..." and "/prediction ..." as UI commands rather than
+  // sending them to the AI as conversation.
   const handleLocalSendChat = useCallback(
     async (text: string) => {
       notifyActivity();
+
+      const slash = parseSlashCommand(text);
+      if (slash) {
+        if (!twitchConfig.clientId || !twitchConfig.oauthToken || !twitchBroadcasterIdRef.current) {
+          setAssistantMessage(
+            "I need Twitch alerts connected (Client ID + token) before I can start a poll or prediction."
+          );
+          return;
+        }
+        const result =
+          slash.kind === "poll"
+            ? await createTwitchPoll(
+                twitchConfig.clientId,
+                twitchConfig.oauthToken,
+                twitchBroadcasterIdRef.current,
+                slash.question,
+                slash.options
+              )
+            : await createTwitchPrediction(
+                twitchConfig.clientId,
+                twitchConfig.oauthToken,
+                twitchBroadcasterIdRef.current,
+                slash.question,
+                slash.options
+              );
+        if (result.ok) {
+          await sendChatRef.current(
+            `[${slash.kind === "poll" ? "Poll" : "Prediction"} Started] You just started a ${slash.kind} asking: "${slash.question}". Briefly hype it up for viewers.`
+          );
+        } else {
+          setAssistantMessage(`Couldn't start the ${slash.kind}: ${result.error}`);
+        }
+        return;
+      }
+
       await sendChatRef.current(text);
     },
-    [notifyActivity]
+    [notifyActivity, twitchConfig]
   );
 
   // ── Alert test buttons (Settings > Twitch) ────────────────────────────────
@@ -514,6 +590,14 @@ export default function Home() {
     twitchClient.connect(twitchConfig.channel, twitchConfig.oauthToken);
 
     const unsub = twitchClient.onMessage((msg) => {
+      // Emote wall: fires on any chat emoji regardless of whether the AI is
+      // set to respond to chat — this is purely visual, gated only on the
+      // Twitch connection itself being active.
+      const emojis = extractEmojis(msg.message);
+      if (emojis.length > 0) {
+        spawnEmojiFromChat(emojis);
+      }
+
       if (!twitchConfig.respondToChat) return;
 
       const trimmed = msg.message.trim();
@@ -579,6 +663,66 @@ export default function Home() {
             setEventSubStatus(status === "disconnected" ? "disconnected" : status);
             setEventSubError(detail ?? null);
           },
+          onBroadcasterId: (id) => {
+            twitchBroadcasterIdRef.current = id;
+            fetchChannelEmoteUrls(twitchConfig.clientId!, twitchConfig.oauthToken!, id).then(
+              setChannelEmotes
+            );
+          },
+          onPollBegin: (id, title, options) => {
+            pollPredictionStore.setState({
+              kind: "poll",
+              id,
+              title,
+              options: options.map((o) => ({ title: o, votes: 0 })),
+              status: "active",
+            });
+          },
+          onPollProgress: (id, options) => {
+            pollPredictionStore.update({ id, options, kind: "poll" } as any);
+          },
+          onPollEnd: (id, options) => {
+            pollPredictionStore.update({ id, options, status: "ended", kind: "poll" } as any);
+            const winner = [...options].sort((a, b) => b.votes - a.votes)[0];
+            sendPromptStable(
+              `[Poll Ended] The poll just ended. "${winner?.title}" won with ${winner?.votes} votes! Announce the winner briefly.`
+            );
+            pollPredictionStore.finish(60000);
+          },
+          onPredictionBegin: (id, title, outcomes) => {
+            pollPredictionStore.setState({
+              kind: "prediction",
+              id,
+              title,
+              outcomes: outcomes.map((o) => ({ title: o, users: 0, points: 0 })),
+              status: "active",
+            });
+          },
+          onPredictionProgress: (id, outcomes) => {
+            pollPredictionStore.update({ id, outcomes, kind: "prediction" } as any);
+          },
+          onPredictionLock: (id, outcomes) => {
+            pollPredictionStore.update({
+              id,
+              outcomes,
+              status: "locked",
+              kind: "prediction",
+            } as any);
+          },
+          onPredictionEnd: (id, outcomes, winningOutcome) => {
+            pollPredictionStore.update({
+              id,
+              outcomes,
+              status: "ended",
+              kind: "prediction",
+            } as any);
+            sendPromptStable(
+              winningOutcome
+                ? `[Prediction Ended] The prediction just resolved. "${winningOutcome}" was correct! Announce the result briefly.`
+                : `[Prediction Ended] The prediction was canceled. Briefly let viewers know.`
+            );
+            pollPredictionStore.finish(60000);
+          },
         },
       });
     }
@@ -589,6 +733,8 @@ export default function Home() {
     eventSubClient.disconnect();
     setEventSubStatus("idle");
     setEventSubError(null);
+    pollPredictionStore.clear();
+    setChannelEmotes([]);
     setTwitchConnected(false);
     twitchQueueRef.current = [];
     twitchProcessingRef.current = false;
@@ -833,6 +979,9 @@ export default function Home() {
       {/* Top-right alert stack — ad countdown, Twitch alerts, polls, etc.
           all render here automatically by calling alertQueue.push(). */}
       <AlertOverlay />
+
+      {/* Falling emotes/emojis — chat emoji, bits, and alert emote walls. */}
+      <EmoteWallOverlay />
     </div>
   );
 }
