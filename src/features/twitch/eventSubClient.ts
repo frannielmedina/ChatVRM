@@ -9,6 +9,8 @@
 //      moderator:read:followers   (follow alerts)
 //      channel:read:subscriptions (sub / resub / streak alerts)
 //      bits:read                  (bits / cheer alerts)
+//      channel:manage:polls       (poll display + creation via /poll)
+//      channel:manage:predictions (prediction display + creation via /prediction)
 //    (raids need no extra scope beyond a valid user token)
 //
 // See Settings > Twitch in-app for the step-by-step to generate one.
@@ -25,6 +27,25 @@ export type EventSubHandlers = {
   onResub: (displayName: string, cumulativeMonths: number, streakMonths: number | null) => void;
   onBits: (displayName: string, bits: number, message: string) => void;
   onStatus?: (status: "connecting" | "connected" | "error" | "disconnected", detail?: string) => void;
+  // Fired once we've resolved the broadcaster's numeric Twitch user id —
+  // useful for follow-up Helix calls like fetching channel emotes.
+  onBroadcasterId?: (id: string) => void;
+  // Polls/predictions — optional since not every caller cares about them.
+  onPollBegin?: (id: string, title: string, options: string[]) => void;
+  onPollProgress?: (id: string, options: { title: string; votes: number }[]) => void;
+  onPollEnd?: (id: string, options: { title: string; votes: number }[], status: string) => void;
+  onPredictionBegin?: (id: string, title: string, outcomes: string[]) => void;
+  onPredictionProgress?: (
+    id: string,
+    outcomes: { title: string; users: number; points: number }[]
+  ) => void;
+  onPredictionLock?: (id: string, outcomes: { title: string; users: number; points: number }[]) => void;
+  onPredictionEnd?: (
+    id: string,
+    outcomes: { title: string; users: number; points: number }[],
+    winningOutcome: string | null,
+    status: string
+  ) => void;
 };
 
 type ConnectOpts = {
@@ -115,6 +136,7 @@ export class EventSubClient {
       );
       return;
     }
+    handlers.onBroadcasterId?.(broadcasterId);
 
     this.openSocket(EVENTSUB_WS_URL, clientId, token, broadcasterId);
   }
@@ -194,6 +216,27 @@ export class EventSubClient {
         broadcasterCondition
       ),
       createSubscription(clientId, token, sessionId, "channel.cheer", "1", broadcasterCondition),
+      createSubscription(clientId, token, sessionId, "channel.poll.begin", "1", broadcasterCondition),
+      createSubscription(clientId, token, sessionId, "channel.poll.progress", "1", broadcasterCondition),
+      createSubscription(clientId, token, sessionId, "channel.poll.end", "1", broadcasterCondition),
+      createSubscription(
+        clientId,
+        token,
+        sessionId,
+        "channel.prediction.begin",
+        "1",
+        broadcasterCondition
+      ),
+      createSubscription(
+        clientId,
+        token,
+        sessionId,
+        "channel.prediction.progress",
+        "1",
+        broadcasterCondition
+      ),
+      createSubscription(clientId, token, sessionId, "channel.prediction.lock", "1", broadcasterCondition),
+      createSubscription(clientId, token, sessionId, "channel.prediction.end", "1", broadcasterCondition),
     ]);
   }
 
@@ -231,6 +274,62 @@ export class EventSubClient {
           event.message || ""
         );
         break;
+      case "channel.poll.begin": {
+        const options = (event.choices || []).map((c: any) => c.title);
+        this.handlers.onPollBegin?.(event.id, event.title, options);
+        break;
+      }
+      case "channel.poll.progress": {
+        const options = (event.choices || []).map((c: any) => ({
+          title: c.title,
+          votes: Number(c.votes) || 0,
+        }));
+        this.handlers.onPollProgress?.(event.id, options);
+        break;
+      }
+      case "channel.poll.end": {
+        const options = (event.choices || []).map((c: any) => ({
+          title: c.title,
+          votes: Number(c.votes) || 0,
+        }));
+        this.handlers.onPollEnd?.(event.id, options, event.status || "completed");
+        break;
+      }
+      case "channel.prediction.begin": {
+        const outcomes = (event.outcomes || []).map((o: any) => o.title);
+        this.handlers.onPredictionBegin?.(event.id, event.title, outcomes);
+        break;
+      }
+      case "channel.prediction.progress": {
+        const outcomes = (event.outcomes || []).map((o: any) => ({
+          title: o.title,
+          users: Number(o.users) || 0,
+          points: Number(o.channel_points) || 0,
+        }));
+        this.handlers.onPredictionProgress?.(event.id, outcomes);
+        break;
+      }
+      case "channel.prediction.lock": {
+        const outcomes = (event.outcomes || []).map((o: any) => ({
+          title: o.title,
+          users: Number(o.users) || 0,
+          points: Number(o.channel_points) || 0,
+        }));
+        this.handlers.onPredictionLock?.(event.id, outcomes);
+        break;
+      }
+      case "channel.prediction.end": {
+        const outcomes = (event.outcomes || []).map((o: any) => ({
+          title: o.title,
+          users: Number(o.users) || 0,
+          points: Number(o.channel_points) || 0,
+        }));
+        const winner =
+          (event.outcomes || []).find((o: any) => o.id === event.winning_outcome_id)?.title ??
+          null;
+        this.handlers.onPredictionEnd?.(event.id, outcomes, winner, event.status || "resolved");
+        break;
+      }
       default:
         break;
     }

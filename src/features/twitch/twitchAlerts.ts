@@ -1,4 +1,5 @@
 import { alertQueue } from "@/features/alerts/alertQueue";
+import { spawnAlertEmoteWall, spawnBitsWall } from "@/features/emoteWall/emoteWallQueue";
 
 const ALERT_DURATION_MS = 8000;
 
@@ -12,6 +13,7 @@ export function fireFollowAlert(
     subtitle: displayName,
     durationMs: ALERT_DURATION_MS,
   });
+  spawnAlertEmoteWall();
   sendPrompt(
     `[Twitch Follow] ${displayName} just followed the channel! React briefly and thank them by name.`
   );
@@ -28,6 +30,7 @@ export function fireRaidAlert(
     subtitle: `${fromDisplayName} — ${viewers} raiders`,
     durationMs: ALERT_DURATION_MS,
   });
+  spawnAlertEmoteWall();
   sendPrompt(
     `[Twitch Raid] ${fromDisplayName} just raided the channel with ${viewers} viewers! Give them an enthusiastic welcome by name.`
   );
@@ -44,6 +47,7 @@ export function fireSubAlert(
     subtitle: displayName,
     durationMs: ALERT_DURATION_MS,
   });
+  spawnAlertEmoteWall();
   sendPrompt(
     `[Twitch Sub] ${displayName} just subscribed to the channel! Thank them briefly by name.`
   );
@@ -60,6 +64,7 @@ export function fireResubAlert(
     subtitle: `${displayName} — ${cumulativeMonths} months`,
     durationMs: ALERT_DURATION_MS,
   });
+  spawnAlertEmoteWall();
   sendPrompt(
     `[Twitch Resub] ${displayName} just resubscribed for a total of ${cumulativeMonths} months! Thank them briefly by name.`
   );
@@ -77,6 +82,7 @@ export function fireStreakAlert(
     title: `Congratulations for your ${streakMonths} stream streak, ${displayName}`,
     durationMs: ALERT_DURATION_MS,
   });
+  spawnAlertEmoteWall();
   sendPrompt(
     `[Twitch Streak] ${displayName} just shared a ${streakMonths}-month sub streak! Congratulate them by name.`
   );
@@ -94,6 +100,7 @@ export function fireBitsAlert(
     subtitle: displayName,
     durationMs: ALERT_DURATION_MS,
   });
+  spawnBitsWall(bits);
   const withMessage = message ? ` They said: "${message}"` : "";
   sendPrompt(
     `[Twitch Bits] ${displayName} just cheered ${bits} bits!${withMessage} Thank them briefly by name.`
