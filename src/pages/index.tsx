@@ -103,6 +103,7 @@ export default function Home() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
+  const [fallbackMessage, setFallbackMessage] = useState("");
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(DEFAULT_AI_CONFIG);
   const [koeiroParam, setKoeiroParam] = useState<KoeiroParam>(DEFAULT_PARAM);
   const [ttsConfig, setTtsConfig] = useState<TTSConfig>(DEFAULT_TTS_CONFIG);
@@ -171,6 +172,7 @@ export default function Home() {
       try {
         const params = JSON.parse(saved);
         setSystemPrompt(params.systemPrompt ?? SYSTEM_PROMPT);
+        setFallbackMessage(params.fallbackMessage ?? "");
         setKoeiroParam(params.koeiroParam ?? DEFAULT_PARAM);
         setChatLog(params.chatLog ?? []);
         if (params.aiConfig) setAiConfig({ ...DEFAULT_AI_CONFIG, ...params.aiConfig });
@@ -195,6 +197,7 @@ export default function Home() {
         "chatVRMParams",
         JSON.stringify({
           systemPrompt,
+          fallbackMessage,
           koeiroParam,
           chatLog,
           aiConfig,
@@ -207,7 +210,7 @@ export default function Home() {
         })
       )
     );
-  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig]);
+  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig]);
 
   // ── VRM model persistence ──────────────────────────────────────────────────
   const [viewerReady, setViewerReady] = useState(false);
@@ -249,6 +252,7 @@ export default function Home() {
       "chatVRMParams",
       JSON.stringify({
         systemPrompt,
+        fallbackMessage,
         koeiroParam,
         chatLog,
         aiConfig,
@@ -260,7 +264,7 @@ export default function Home() {
         visionConfig,
       })
     );
-  }, [systemPrompt, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig]);
+  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig]);
 
   const handleResetCommand = useCallback(() => {
     setChatLog([]);
@@ -934,6 +938,9 @@ export default function Home() {
         onChangeAiConfig={setAiConfig}
         onChangeSystemPrompt={setSystemPrompt}
         onChangeChatLog={handleChangeChatLog}
+        fallbackMessage={fallbackMessage}
+        onChangeFallbackMessage={setFallbackMessage}
+        onClickResetFallbackMessage={() => setFallbackMessage("")}
         onChangeTTSConfig={handleChangeTtsConfig}
         onChangeKoeiroParam={(x, y) => setKoeiroParam({ speakerX: x, speakerY: y })}
         handleClickResetChatLog={() => setChatLog([])}
