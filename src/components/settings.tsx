@@ -69,6 +69,9 @@ type Props = {
   onClickOpenVrmFile: () => void;
   onClickResetChatLog: () => void;
   onClickResetSystemPrompt: () => void;
+  fallbackMessage: string;
+  onChangeFallbackMessage: (message: string) => void;
+  onClickResetFallbackMessage: () => void;
   onChangeTTSConfig: (config: TTSConfig) => void;
   onChangeKoeiroParam: (x: number, y: number) => void;
   onChangeTwitchConfig: (config: TwitchConfig) => void;
@@ -204,6 +207,9 @@ export const SettingsContent = (props: Props) => {
     onClickOpenVrmFile,
     onClickResetChatLog,
     onClickResetSystemPrompt,
+    fallbackMessage,
+    onChangeFallbackMessage,
+    onClickResetFallbackMessage,
     onChangeTTSConfig,
     onChangeKoeiroParam,
     onChangeTwitchConfig,
@@ -324,6 +330,30 @@ export const SettingsContent = (props: Props) => {
                 backgroundConfig={backgroundConfig}
                 onLoadSettings={onLoadSettings}
               />
+
+              <div className="my-40">
+                <div className="my-16 typography-20 font-bold">Fallback Message</div>
+                <div className="p-16 bg-surface1 rounded-8">
+                  <div className="text-sm text-text-primary/70 mb-12">
+                    Spoken instead of staying silent whenever the AI provider
+                    errors out — rate limits, timeouts, or anything else. Use{" "}
+                    <code className="bg-surface3 px-4 rounded-4">[happy]</code>,{" "}
+                    <code className="bg-surface3 px-4 rounded-4">[sad]</code>,{" "}
+                    <code className="bg-surface3 px-4 rounded-4">[angry]</code>,{" "}
+                    <code className="bg-surface3 px-4 rounded-4">[relaxed]</code>, or{" "}
+                    <code className="bg-surface3 px-4 rounded-4">[neutral]</code> at
+                    the start to set her expression, same as normal replies.
+                  </div>
+                  <textarea
+                    value={fallbackMessage}
+                    onChange={(e) => onChangeFallbackMessage(e.target.value)}
+                    className="px-16 py-8 bg-surface3 hover:bg-surface3-hover rounded-8 w-full h-[80px] mb-8"
+                  />
+                  <TextButton onClick={onClickResetFallbackMessage}>
+                    Reset to Default
+                  </TextButton>
+                </div>
+              </div>
 
               <div className="my-40">
                 <div className="my-16 typography-20 font-bold flex items-center gap-8">

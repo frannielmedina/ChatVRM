@@ -62,6 +62,9 @@ type Props = {
   onChangeKoeiroParam: (x: number, y: number) => void;
   handleClickResetChatLog: () => void;
   handleClickResetSystemPrompt: () => void;
+  fallbackMessage: string;
+  onChangeFallbackMessage: (message: string) => void;
+  onClickResetFallbackMessage: () => void;
   onChangeTwitchConfig: (config: TwitchConfig) => void;
   onTwitchConnect: () => void;
   onTwitchDisconnect: () => void;
@@ -123,6 +126,9 @@ export const Menu = ({
   onChangeKoeiroParam,
   handleClickResetChatLog,
   handleClickResetSystemPrompt,
+  fallbackMessage,
+  onChangeFallbackMessage,
+  onClickResetFallbackMessage,
   onChangeTwitchConfig,
   onTwitchConnect,
   onTwitchDisconnect,
@@ -326,6 +332,9 @@ export const Menu = ({
           onClickOpenVrmFile={handleClickOpenVrmFile}
           onClickResetChatLog={handleClickResetChatLog}
           onClickResetSystemPrompt={handleClickResetSystemPrompt}
+          fallbackMessage={fallbackMessage}
+          onChangeFallbackMessage={onChangeFallbackMessage}
+          onClickResetFallbackMessage={onClickResetFallbackMessage}
           onChangeTTSConfig={onChangeTTSConfig}
           onChangeKoeiroParam={onChangeKoeiroParam}
           onChangeTwitchConfig={onChangeTwitchConfig}
