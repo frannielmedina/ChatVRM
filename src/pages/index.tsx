@@ -855,12 +855,13 @@ export default function Home() {
   // framing the moment it stops (button click, browser's native "Stop
   // sharing", or the VDO.Ninja connection ending).
   useEffect(() => {
+    viewer.setFullBodyView(screenShareConfig.fullBodyView);
     viewer.setScreenShareFraming(screenShareConfig.active);
     // Viewer now watches its container with a ResizeObserver, so the
     // renderer/camera aspect stays in sync automatically as the box
     // animates between full-screen and the corner "facecam" size — no
     // need to manually trigger a resize here.
-  }, [screenShareConfig.active, viewer]);
+  }, [screenShareConfig.active, screenShareConfig.fullBodyView, viewer]);
 
   const handleChangeTtsConfig = useCallback((config: TTSConfig) => {
     setTtsConfig(config);
