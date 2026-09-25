@@ -13,7 +13,6 @@ import { KoeiroParam, DEFAULT_PARAM } from "@/features/constants/koeiroParam";
 import { getChatResponseStream, truncateHistory, RateLimitError } from "@/features/chat/multiProviderChat";
 import { Introduction } from "@/components/introduction";
 import { Menu } from "@/components/menu";
-import { GitHubLink } from "@/components/githubLink";
 import { Meta } from "@/components/meta";
 import { TwitchOverlay } from "@/components/twitchOverlay";
 import { ScreenShareBackground } from "@/components/screenShareBackground";
@@ -857,10 +856,10 @@ export default function Home() {
   // sharing", or the VDO.Ninja connection ending).
   useEffect(() => {
     viewer.setScreenShareFraming(screenShareConfig.active);
-    // The canvas's container just resized (full-screen <-> corner box) —
-    // let the renderer/camera aspect catch up to the new dimensions once
-    // the DOM has actually reflowed with the new size.
-    requestAnimationFrame(() => viewer.resize());
+    // Viewer now watches its container with a ResizeObserver, so the
+    // renderer/camera aspect stays in sync automatically as the box
+    // animates between full-screen and the corner "facecam" size — no
+    // need to manually trigger a resize here.
   }, [screenShareConfig.active, viewer]);
 
   const handleChangeTtsConfig = useCallback((config: TTSConfig) => {
@@ -886,7 +885,10 @@ export default function Home() {
         active={screenShareConfig.active}
       />
 
-      <VrmViewer cornerMode={screenShareConfig.active} />
+      <VrmViewer
+        cornerMode={screenShareConfig.active}
+        cornerPosition={screenShareConfig.cornerPosition}
+      />
 
       <div
         className={`transition-opacity duration-500 ${
@@ -962,14 +964,6 @@ export default function Home() {
         onSaveSettings={saveSettingsNow}
         onVrmFileLoad={handleVrmFileLoad}
       />
-
-      <div
-        className={`transition-opacity duration-500 ${
-          uiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-      >
-        <GitHubLink />
-      </div>
 
       {twitchConfig.readChat && (
         <TwitchOverlay
