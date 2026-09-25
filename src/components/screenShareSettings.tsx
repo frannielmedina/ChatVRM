@@ -66,6 +66,38 @@ export const ScreenShareSettings = ({
         </div>
 
         <div className="mb-16">
+          <div className="font-bold mb-8">Framing</div>
+          <div className="grid grid-cols-2 gap-8">
+            <button
+              onClick={() => update({ fullBodyView: true })}
+              className={`p-12 rounded-8 border-2 text-left transition-all ${
+                config.fullBodyView || config.fullBodyView === undefined
+                  ? "border-primary bg-primary/10"
+                  : "border-surface3 bg-surface3 hover:border-primary/50"
+              }`}
+            >
+              <div className="font-bold text-sm">🧍 Full Body</div>
+              <div className="text-xs text-text-primary/60 mt-2">
+                Auto-fits head to toe — nothing gets cropped
+              </div>
+            </button>
+            <button
+              onClick={() => update({ fullBodyView: false })}
+              className={`p-12 rounded-8 border-2 text-left transition-all ${
+                config.fullBodyView === false
+                  ? "border-primary bg-primary/10"
+                  : "border-surface3 bg-surface3 hover:border-primary/50"
+              }`}
+            >
+              <div className="font-bold text-sm">🤏 Close-Up</div>
+              <div className="text-xs text-text-primary/60 mt-2">
+                Tighter fixed shot, upper body only
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-16">
           <div className="font-bold mb-8">Character Corner</div>
           <div className="grid grid-cols-2 gap-8">
             <button
