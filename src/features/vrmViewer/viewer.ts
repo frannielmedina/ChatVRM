@@ -30,6 +30,7 @@ export class Viewer {
   private readonly SCREEN_SHARE_CAMERA_POS = new THREE.Vector3(0, 1.5, 2.4);
 
   private _isScreenShareFraming = false;
+  private _resizeObserver?: ResizeObserver;
 
   constructor() {
     this.isReady = false;
@@ -79,14 +80,30 @@ export class Viewer {
 
     this._camera = new THREE.PerspectiveCamera(this.DEFAULT_FOV, width / height, 0.1, 20.0);
     this._camera.position.copy(this.DEFAULT_CAMERA_POS);
-    this._cameraControls?.target.set(0, 1.3, 0);
-    this._cameraControls?.update();
 
+    // OrbitControls must exist before we can set its target — doing this in
+    // the other order silently no-ops (optional chaining on `undefined`)
+    // and leaves the initial target at (0,0,0), which is why the character
+    // used to look badly framed for a split second on startup.
     this._cameraControls = new OrbitControls(this._camera, this._renderer.domElement);
     this._cameraControls.screenSpacePanning = true;
+    this._cameraControls.target.set(0, 1.3, 0);
     this._cameraControls.update();
 
+    // A plain `window.resize` listener only fires on an actual browser
+    // window resize. It does NOT fire when the canvas's own container
+    // changes size for some other reason — e.g. toggling into/out of the
+    // corner "facecam" box while screen sharing, which resizes the
+    // container via a CSS class change (and an animated CSS transition on
+    // top of that). ResizeObserver watches the container itself, so the
+    // renderer/camera stay in sync continuously, including mid-transition.
+    if (parentElement) {
+      this._resizeObserver?.disconnect();
+      this._resizeObserver = new ResizeObserver(() => this.resize());
+      this._resizeObserver.observe(parentElement);
+    }
     window.addEventListener("resize", () => { this.resize(); });
+
     this.isReady = true;
     this.update();
   }
@@ -95,10 +112,13 @@ export class Viewer {
     if (!this._renderer) return;
     const parentElement = this._renderer.domElement.parentElement;
     if (!parentElement) return;
+    const width = parentElement.clientWidth;
+    const height = parentElement.clientHeight;
+    if (width === 0 || height === 0) return;
     this._renderer.setPixelRatio(window.devicePixelRatio);
-    this._renderer.setSize(parentElement.clientWidth, parentElement.clientHeight);
+    this._renderer.setSize(width, height);
     if (!this._camera) return;
-    this._camera.aspect = parentElement.clientWidth / parentElement.clientHeight;
+    this._camera.aspect = width / height;
     this._camera.updateProjectionMatrix();
   }
 
