@@ -1,15 +1,21 @@
 export type ScreenShareMode = "chrome" | "vdoninja";
 
+// Which bottom corner the character's "facecam" box snaps to while screen
+// share / gaming mode is active.
+export type CornerPosition = "left" | "right";
+
 export type ScreenShareConfig = {
   mode: ScreenShareMode;
   vdoninjaRoomId?: string;
   active: boolean;
+  cornerPosition: CornerPosition;
 };
 
 export const DEFAULT_SCREEN_SHARE_CONFIG: ScreenShareConfig = {
   mode: "chrome",
   vdoninjaRoomId: "",
   active: false,
+  cornerPosition: "right",
 };
 
 let _screenStream: MediaStream | null = null;
