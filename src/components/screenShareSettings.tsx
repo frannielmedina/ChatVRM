@@ -65,6 +65,35 @@ export const ScreenShareSettings = ({
           </div>
         </div>
 
+        <div className="mb-16">
+          <div className="font-bold mb-8">Character Corner</div>
+          <div className="grid grid-cols-2 gap-8">
+            <button
+              onClick={() => update({ cornerPosition: "left" })}
+              className={`p-12 rounded-8 border-2 text-left transition-all ${
+                config.cornerPosition === "left"
+                  ? "border-primary bg-primary/10"
+                  : "border-surface3 bg-surface3 hover:border-primary/50"
+              }`}
+            >
+              <div className="font-bold text-sm">⬅ Bottom Left</div>
+            </button>
+            <button
+              onClick={() => update({ cornerPosition: "right" })}
+              className={`p-12 rounded-8 border-2 text-left transition-all ${
+                config.cornerPosition === "right" || !config.cornerPosition
+                  ? "border-primary bg-primary/10"
+                  : "border-surface3 bg-surface3 hover:border-primary/50"
+              }`}
+            >
+              <div className="font-bold text-sm">Bottom Right ➡</div>
+            </button>
+          </div>
+          <div className="text-xs text-text-primary/60 mt-4">
+            Which corner the character docks to while screen share / gaming mode is active.
+          </div>
+        </div>
+
         {config.mode === "vdoninja" && (
           <div className="mb-16">
             <div className="font-bold mb-4">VDO.Ninja Viewer URL</div>

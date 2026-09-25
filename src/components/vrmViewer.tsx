@@ -1,16 +1,22 @@
 import { useContext, useCallback } from "react";
 import { ViewerContext } from "../features/vrmViewer/viewerContext";
 import { buildUrl } from "@/utils/buildUrl";
+import { CornerPosition } from "@/features/screenShare/screenShare";
 
 type Props = {
-  // When true, the canvas is confined to a small box in the bottom-right
-  // corner (used while screen sharing / VDO.Ninja is active) instead of
-  // filling the whole viewport. This guarantees the avatar can never loom
-  // over the shared content, regardless of how the 3D camera is framed.
+  // When true, the canvas is confined to a small box in a bottom corner
+  // (used while screen sharing / VDO.Ninja is active) instead of filling
+  // the whole viewport. This guarantees the avatar can never loom over the
+  // shared content, regardless of how the 3D camera is framed.
   cornerMode?: boolean;
+  // Which bottom corner to dock to while cornerMode is active.
+  cornerPosition?: CornerPosition;
 };
 
-export default function VrmViewer({ cornerMode = false }: Props) {
+export default function VrmViewer({
+  cornerMode = false,
+  cornerPosition = "right",
+}: Props) {
   const { viewer } = useContext(ViewerContext);
 
   const canvasRef = useCallback(
@@ -42,7 +48,9 @@ export default function VrmViewer({ cornerMode = false }: Props) {
     <div
       className={
         cornerMode
-          ? "fixed right-16 bottom-0 z-10 w-[300px] h-[85svh] transition-all duration-300"
+          ? `fixed ${
+              cornerPosition === "left" ? "left-16" : "right-16"
+            } bottom-0 z-10 w-[300px] h-[85svh] transition-all duration-300`
           : "absolute top-0 left-0 w-screen h-[100svh] -z-10 transition-all duration-300"
       }
     >
