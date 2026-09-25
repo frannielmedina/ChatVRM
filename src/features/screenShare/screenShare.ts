@@ -9,6 +9,11 @@ export type ScreenShareConfig = {
   vdoninjaRoomId?: string;
   active: boolean;
   cornerPosition: CornerPosition;
+  // When true, the corner/facecam camera auto-fits the character's whole
+  // body (measured from the actual loaded model, so it works regardless of
+  // hair, ears, or accessories) instead of a fixed close-in shot that could
+  // crop the top of the head.
+  fullBodyView: boolean;
 };
 
 export const DEFAULT_SCREEN_SHARE_CONFIG: ScreenShareConfig = {
@@ -16,6 +21,7 @@ export const DEFAULT_SCREEN_SHARE_CONFIG: ScreenShareConfig = {
   vdoninjaRoomId: "",
   active: false,
   cornerPosition: "right",
+  fullBodyView: true,
 };
 
 let _screenStream: MediaStream | null = null;
