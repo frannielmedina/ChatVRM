@@ -29,8 +29,20 @@ export class Viewer {
   private readonly SCREEN_SHARE_FOV = 32.0;
   private readonly SCREEN_SHARE_CAMERA_POS = new THREE.Vector3(0, 1.5, 2.4);
 
+  // Extra breathing room around the auto-fit bounding box so cat ears,
+  // ponytails, etc. never touch the very edge of the frame.
+  private readonly FULL_BODY_MARGIN = 1.15;
+
   private _isScreenShareFraming = false;
+  // When true, the corner/screen-share framing measures the actual loaded
+  // model (head-to-toe, including hair/ears) and backs the camera off just
+  // far enough to guarantee the whole body fits in frame — instead of a
+  // fixed guessed distance that only worked for one model's proportions.
+  private _fullBodyView = true;
   private _resizeObserver?: ResizeObserver;
+  // Real bounding box of the currently loaded model, measured right after
+  // load (bind/idle pose). Used to drive the full-body auto-fit above.
+  private _modelBounds?: { height: number; width: number; centerY: number };
 
   constructor() {
     this.isReady = false;
@@ -57,6 +69,14 @@ export class Viewer {
       this._scene.add(this.model.vrm.scene);
       const vrma = await loadVRMAnimation(buildUrl("/idle_loop.vrma"));
       if (vrma) this.model.loadAnimation(vrma);
+
+      const box = new THREE.Box3().setFromObject(this.model.vrm.scene);
+      this._modelBounds = {
+        height: Math.max(box.max.y - box.min.y, 0.1),
+        width: Math.max(box.max.x - box.min.x, 0.1),
+        centerY: (box.max.y + box.min.y) / 2,
+      };
+
       requestAnimationFrame(() => { this.resetCamera(); });
     });
   }
@@ -120,6 +140,14 @@ export class Viewer {
     if (!this._camera) return;
     this._camera.aspect = width / height;
     this._camera.updateProjectionMatrix();
+
+    // The corner box's aspect ratio changes as it animates in/out, and the
+    // full-body-fit distance depends on aspect — recompute it continuously
+    // so the whole body stays framed (rather than only fitting correctly
+    // once the CSS transition finishes).
+    if (this._isScreenShareFraming && this._fullBodyView) {
+      this.applyScreenShareFraming();
+    }
   }
 
   // Projects the VRM's head bone to viewport percentage coordinates — used
@@ -157,6 +185,21 @@ export class Viewer {
     }
   }
 
+  // Toggle whether corner/screen-share framing auto-fits the whole body
+  // (measured from the actual loaded model) or uses the fixed close-in
+  // distance. Re-applies immediately if screen-share framing is active.
+  public setFullBodyView(enabled: boolean) {
+    this._fullBodyView = enabled;
+    if (this._isScreenShareFraming) this.applyScreenShareFraming();
+  }
+
+  // Camera distance at which a subject of `size` (world units) exactly
+  // fills the given FOV, with FULL_BODY_MARGIN of headroom on top.
+  private static fitDistance(size: number, fovDeg: number): number {
+    const fovRad = THREE.MathUtils.degToRad(fovDeg);
+    return size / (2 * Math.tan(fovRad / 2));
+  }
+
   // Toggles between the default centered close-up and the pulled-back
   // "corner facecam" framing used while screen sharing / VDO.Ninja is
   // active. Call with `false` to restore the original position when
@@ -184,15 +227,48 @@ export class Viewer {
 
   private applyScreenShareFraming() {
     if (!this._camera || !this._cameraControls) return;
-    const hipsNode = this.model?.vrm?.humanoid.getNormalizedBoneNode("hips");
-    const baseY = hipsNode
-      ? hipsNode.getWorldPosition(new THREE.Vector3()).y
-      : 0.9;
 
     this._camera.fov = this.SCREEN_SHARE_FOV;
     this._camera.updateProjectionMatrix();
-    this._camera.position.copy(this.SCREEN_SHARE_CAMERA_POS);
-    this._cameraControls.target.set(0, baseY, 0);
+
+    if (this._fullBodyView && this._modelBounds) {
+      // Measure the box's own aspect against the container's aspect to
+      // decide whether height or width is the tighter constraint — a
+      // narrow, tall corner box (like the default 300px-wide facecam) is
+      // usually height-limited, but a wider box could be width-limited
+      // instead, so check both rather than assuming.
+      const parentElement = this._renderer?.domElement.parentElement;
+      const aspect =
+        parentElement && parentElement.clientHeight
+          ? parentElement.clientWidth / parentElement.clientHeight
+          : this._camera.aspect;
+
+      const vFov = this.SCREEN_SHARE_FOV;
+      const hFovRad =
+        2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(vFov) / 2) * aspect);
+      const hFovDeg = THREE.MathUtils.radToDeg(hFovRad);
+
+      const distanceForHeight = Viewer.fitDistance(
+        this._modelBounds.height * this.FULL_BODY_MARGIN,
+        vFov
+      );
+      const distanceForWidth = Viewer.fitDistance(
+        this._modelBounds.width * this.FULL_BODY_MARGIN,
+        hFovDeg
+      );
+      const distance = Math.max(distanceForHeight, distanceForWidth, 0.5);
+
+      this._camera.position.set(0, this._modelBounds.centerY, distance);
+      this._cameraControls.target.set(0, this._modelBounds.centerY, 0);
+    } else {
+      const hipsNode = this.model?.vrm?.humanoid.getNormalizedBoneNode("hips");
+      const baseY = hipsNode
+        ? hipsNode.getWorldPosition(new THREE.Vector3()).y
+        : 0.9;
+      this._camera.position.copy(this.SCREEN_SHARE_CAMERA_POS);
+      this._cameraControls.target.set(0, baseY, 0);
+    }
+
     this._cameraControls.update();
   }
 
