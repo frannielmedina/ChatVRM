@@ -138,6 +138,11 @@ export const AssistantText = ({
 
   // ── React to message prop changes ────────────────────────────────────────
   useEffect(() => {
+    if (!captionStyle.enabled) {
+      clearAllTimers();
+      return clearAllTimers;
+    }
+
     const cleanMsg = clean(message);
 
     if (!cleanMsg) {
@@ -167,7 +172,7 @@ export const AssistantText = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message]);
 
-  if (phase === "hidden") return null;
+  if (!captionStyle.enabled || phase === "hidden") return null;
 
   // ── Position classes ────────────────────────────────────────────────────
   const positionClass =

@@ -5,6 +5,8 @@ import React, { useCallback } from "react";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type CaptionStyle = {
+  // Master on/off switch for the whole caption/subtitle overlay.
+  enabled: boolean;
   fontSize: number;
   fontFamily: string;
   textColor: string;
@@ -23,6 +25,7 @@ export type CaptionStyle = {
 };
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
+  enabled: true,
   fontSize: 28,
   fontFamily: "Arial",
   textColor: "#ffffff",
@@ -32,10 +35,11 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   shadowColor: "rgba(0,0,0,0.9)",
   bgOpacity: 0,
   position: "bottom",
-  typewriterEnabled: true,
+  // Cut, not animated, by default: text appears/disappears instantly.
+  typewriterEnabled: false,
   typewriterSpeed: 18,
   lingerDuration: 5,
-  fadeOut: true,
+  fadeOut: false,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -103,6 +107,23 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
       <div className="my-16 typography-20 font-bold">Caption / Subtitles</div>
 
       <div className="p-16 bg-surface1 rounded-8 flex flex-col gap-16">
+
+        {/* ── Master on/off ─────────────────────────────────────────────── */}
+        <div>
+          <div className="font-bold mb-6 text-sm">Show Captions</div>
+          <TogglePair
+            value={style.enabled}
+            onChange={(v) => update({ enabled: v })}
+            labelOn="💬 Enabled"
+            labelOff="🚫 Disabled"
+          />
+        </div>
+
+        <div
+          className={`flex flex-col gap-16 transition-opacity ${
+            style.enabled ? "" : "opacity-40 pointer-events-none"
+          }`}
+        >
 
         {/* ── Live preview ──────────────────────────────────────────────── */}
         <div
@@ -322,6 +343,8 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
             />
           </div>
         )}
+
+        </div>
 
         {/* ── Reset ─────────────────────────────────────────────────────── */}
         <button
