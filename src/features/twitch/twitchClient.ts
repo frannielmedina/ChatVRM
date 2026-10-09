@@ -7,6 +7,7 @@ export type TwitchMessage = {
   isBroadcaster?: boolean;
   // Extended fields parsed from IRC tags
   emotesTag?: string;      // raw emotes tag value, e.g. "25:0-4/112291:6-15"
+  roomId?: string;         // numeric Twitch channel id (room-id tag) — used to load 7TV/BTTV/FFZ emotes
   badgeImages?: TwitchBadge[]; // CDN URLs + names for all badges the user has
 };
 
@@ -255,6 +256,7 @@ export class TwitchClient {
           isBroadcaster,
           // Pass through the raw emotes tag for rendering
           emotesTag: tags["emotes"] || "",
+          roomId: tags["room-id"] || undefined,
           // Parse badge CDN URLs (subscriber, bits, VIP, partner, etc.)
           badgeImages: parseBadgeImages(badgesStr),
         };

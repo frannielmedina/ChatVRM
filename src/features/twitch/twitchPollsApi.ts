@@ -8,7 +8,7 @@ async function helixPost(
     const res = await fetch(`https://api.twitch.tv/helix/${path}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${accessToken.replace(/^oauth:/i, "").trim()}`,
         "Client-Id": clientId,
         "Content-Type": "application/json",
       },
