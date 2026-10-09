@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Model } from "./model";
 import { loadVRMAnimation } from "@/lib/VRMAnimation/loadVRMAnimation";
 import { buildUrl } from "@/utils/buildUrl";
+import { STAGE_ELEMENT_ID } from "@/features/stage/stageConfig";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import {
   GraphicsConfig,
@@ -329,7 +330,7 @@ export class Viewer {
     // full-body-fit distance depends on aspect — recompute it continuously
     // so the whole body stays framed (rather than only fitting correctly
     // once the CSS transition finishes).
-    if (this._isScreenShareFraming && this._fullBodyView) {
+    if (this._isScreenShareFraming) {
       this.applyScreenShareFraming();
     }
   }
@@ -349,9 +350,14 @@ export class Viewer {
     const xPx = rect.left + ((ndc.x + 1) / 2) * rect.width;
     const yPx = rect.top + ((1 - ndc.y) / 2) * rect.height;
 
+    // Percent of the *stage* (which may be a fixed, scaled size), not the window.
+    const stage = document.getElementById(STAGE_ELEMENT_ID)?.getBoundingClientRect();
+    const ref = stage && stage.width > 0
+      ? stage
+      : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
     return {
-      xPct: (xPx / window.innerWidth) * 100,
-      yPct: (yPx / window.innerHeight) * 100,
+      xPct: ((xPx - ref.left) / ref.width) * 100,
+      yPct: ((yPx - ref.top) / ref.height) * 100,
     };
   }
 
@@ -409,50 +415,78 @@ export class Viewer {
     }
   }
 
+  // User fine-tuning of the shared-screen framing (see ScreenShareConfig.zoom / shiftY).
+  private _ssZoom = 1;
+  private _ssShiftY = 0;
+
+  public setScreenShareTuning(zoom: number, shiftY: number) {
+    this._ssZoom = Math.min(3, Math.max(0.3, zoom || 1));
+    this._ssShiftY = shiftY || 0;
+    if (this._isScreenShareFraming) this.applyScreenShareFraming();
+  }
+
   private applyScreenShareFraming() {
     if (!this._camera || !this._cameraControls) return;
 
-    this._camera.fov = this.SCREEN_SHARE_FOV;
+    const vFov = this.SCREEN_SHARE_FOV;
+    this._camera.fov = vFov;
     this._camera.updateProjectionMatrix();
 
-    if (this._fullBodyView && this._modelBounds) {
-      // Measure the box's own aspect against the container's aspect to
-      // decide whether height or width is the tighter constraint — a
-      // narrow, tall corner box (like the default 300px-wide facecam) is
-      // usually height-limited, but a wider box could be width-limited
-      // instead, so check both rather than assuming.
-      const parentElement = this._renderer?.domElement.parentElement;
-      const aspect =
-        parentElement && parentElement.clientHeight
-          ? parentElement.clientWidth / parentElement.clientHeight
-          : this._camera.aspect;
+    const parentElement = this._renderer?.domElement.parentElement;
+    const aspect =
+      parentElement && parentElement.clientHeight
+        ? parentElement.clientWidth / parentElement.clientHeight
+        : this._camera.aspect;
+    const hFovDeg = THREE.MathUtils.radToDeg(
+      2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(vFov) / 2) * aspect)
+    );
 
-      const vFov = this.SCREEN_SHARE_FOV;
-      const hFovRad =
-        2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(vFov) / 2) * aspect);
-      const hFovDeg = THREE.MathUtils.radToDeg(hFovRad);
-
-      const distanceForHeight = Viewer.fitDistance(
-        this._modelBounds.height * this.FULL_BODY_MARGIN,
-        vFov
-      );
-      const distanceForWidth = Viewer.fitDistance(
-        this._modelBounds.width * this.FULL_BODY_MARGIN,
-        hFovDeg
-      );
-      const distance = Math.max(distanceForHeight, distanceForWidth, 0.5);
-
-      this._camera.position.set(0, this._modelBounds.centerY, distance);
-      this._cameraControls.target.set(0, this._modelBounds.centerY, 0);
-    } else {
-      const hipsNode = this.model?.vrm?.humanoid.getNormalizedBoneNode("hips");
-      const baseY = hipsNode
-        ? hipsNode.getWorldPosition(new THREE.Vector3()).y
-        : 0.9;
-      this._camera.position.copy(this.SCREEN_SHARE_CAMERA_POS);
-      this._cameraControls.target.set(0, baseY, 0);
+    const b = this._modelBounds;
+    if (!b) {
+      // No model measured yet: sensible fixed fallback.
+      this._camera.position.set(0, 1.2 + this._ssShiftY, 2.4 / this._ssZoom);
+      this._cameraControls.target.set(0, 1.2 + this._ssShiftY, 0);
+      this._cameraControls.update();
+      return;
     }
 
+    const top = b.centerY + b.height / 2;
+    const bottom = b.centerY - b.height / 2;
+    let centerY: number;
+    let distance: number;
+
+    if (this._fullBodyView) {
+      // Whole body, head to toe, fitted to the box (height OR width, whichever is tighter).
+      centerY = b.centerY;
+      distance = Math.max(
+        Viewer.fitDistance(b.height * this.FULL_BODY_MARGIN, vFov),
+        Viewer.fitDistance(b.width * this.FULL_BODY_MARGIN, hFovDeg)
+      );
+    } else {
+      // Close-up: waist up. Measured from the model (hips bone → top of head/ears), so it
+      // works for any avatar proportions and keeps working when the box is resized.
+      const hips = this.model?.vrm?.humanoid.getNormalizedBoneNode("hips");
+      const hipsY = hips
+        ? hips.getWorldPosition(new THREE.Vector3()).y
+        : bottom + b.height * 0.5;
+      const regionBottom = hipsY + (top - hipsY) * 0.12;
+      const regionHeight = (top - regionBottom) * 1.12;
+      centerY = (top + regionBottom) / 2;
+      // Fit head-and-shoulders width (~1/5 of body height), not the arms: in a narrow, tall
+      // box, fitting the full shoulder span would back the camera out until it's a full-body
+      // shot again. Arms/shoulder edges may crop slightly — that's what makes it a close-up.
+      const upperWidth = b.height * 0.22;
+      distance = Math.max(
+        Viewer.fitDistance(regionHeight, vFov),
+        Viewer.fitDistance(upperWidth, hFovDeg)
+      );
+    }
+
+    distance = Math.max(distance / this._ssZoom, 0.4);
+    centerY += this._ssShiftY;
+
+    this._camera.position.set(0, centerY, distance);
+    this._cameraControls.target.set(0, centerY, 0);
     this._cameraControls.update();
   }
 
