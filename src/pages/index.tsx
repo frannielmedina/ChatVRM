@@ -70,9 +70,22 @@ import {
   fireBitsAlert,
 } from "@/features/twitch/twitchAlerts";
 import { EmoteWallOverlay } from "@/components/emoteWallOverlay";
-import { spawnEmojiFromChat, setChannelEmotes } from "@/features/emoteWall/emoteWallQueue";
+import { spawnFromChat, setChannelEmotes } from "@/features/emoteWall/emoteWallQueue";
 import { extractEmojis } from "@/features/emoteWall/emojiDetect";
-import { fetchChannelEmoteUrls } from "@/features/twitch/twitchEmotes";
+import { fetchChannelEmoteUrls, extractTwitchEmoteUrls } from "@/features/twitch/twitchEmotes";
+import { ensureThirdPartyEmotes, findThirdPartyEmoteUrls, resetThirdPartyEmotes } from "@/features/twitch/thirdPartyEmotes";
+import { twitchFeedStore } from "@/features/twitch/twitchFeedStore";
+import { GraphicsConfig, DEFAULT_GRAPHICS_CONFIG, detectHardware } from "@/features/graphics/graphicsConfig";
+import { StreamerConfig, DEFAULT_STREAMER_CONFIG, resolveStreamProfile } from "@/features/streamer/streamerConfig";
+import { rtmpBroadcaster, BroadcastState } from "@/features/streamer/rtmpBroadcaster";
+import {
+  TAB_ID, STANDBY_KEY, CLAIM_ON_LOAD_KEY, createLink, isStreamerUrl,
+} from "@/features/streamer/streamerLink";
+import { openControlWindow } from "@/components/popoutPortal";
+import { StreamerControlWindow } from "@/components/streamerControlWindow";
+import { StreamerToolbar } from "@/components/streamerToolbar";
+import { StandbyScreen } from "@/components/standbyScreen";
+import { saveCustomVrm, loadCustomVrmUrl } from "@/features/vrmViewer/vrmStorage";
 import { pollPredictionStore } from "@/features/pollPrediction/pollPredictionStore";
 import { parseSlashCommand, extractAiDirective } from "@/features/pollPrediction/pollParser";
 import { createTwitchPoll, createTwitchPrediction } from "@/features/twitch/twitchPollsApi";
@@ -96,7 +109,7 @@ function stripAsteriskActions(text: string): string {
   return clean.replace(/\s{2,}/g, " ").trim();
 }
 
-export default function Home() {
+function Home() {
   const { viewer } = useContext(ViewerContext);
   const uiVisible = useAutoHide(3000);
 
@@ -114,6 +127,17 @@ export default function Home() {
   );
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_CAPTION_STYLE);
   const [visionConfig, setVisionConfig] = useState<VisionConfig>(DEFAULT_VISION_CONFIG);
+
+  // 3D / streamer mode
+  const [graphicsConfig, setGraphicsConfig] = useState<GraphicsConfig>(DEFAULT_GRAPHICS_CONFIG);
+  const [streamerConfig, setStreamerConfig] = useState<StreamerConfig>(DEFAULT_STREAMER_CONFIG);
+  // Home is only ever mounted client-side (see Page below), so reading the URL here is safe.
+  const [isStreamer] = useState(() => isStreamerUrl());
+  const [controlWin, setControlWin] = useState<Window | null>(null);
+  const [broadcast, setBroadcast] = useState<BroadcastState>(rtmpBroadcaster.getState());
+  const [goLivePrompt, setGoLivePrompt] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [pendingHandoff, setPendingHandoff] = useState<{ twitch: boolean; discord: boolean } | null>(null);
 
   // Twitch
   const [twitchConfig, setTwitchConfig] = useState<TwitchConfig>(DEFAULT_TWITCH_CONFIG);
@@ -186,8 +210,17 @@ export default function Home() {
           setCaptionStyle({ ...DEFAULT_CAPTION_STYLE, ...params.captionStyle });
         if (params.visionConfig)
           setVisionConfig({ ...DEFAULT_VISION_CONFIG, ...params.visionConfig });
+        if (params.graphicsConfig)
+          setGraphicsConfig({ ...DEFAULT_GRAPHICS_CONFIG, ...params.graphicsConfig });
+        if (params.streamerConfig)
+          setStreamerConfig({ ...DEFAULT_STREAMER_CONFIG, ...params.streamerConfig });
+        if (params.adBreakConfig)
+          setAdBreakConfig({ ...DEFAULT_AD_BREAK_CONFIG, ...params.adBreakConfig });
+        if (params.autonomousConfig)
+          setAutonomousConfig({ ...DEFAULT_AUTONOMOUS_CONFIG, ...params.autonomousConfig });
       } catch (_) {}
     }
+    setSettingsLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -206,10 +239,14 @@ export default function Home() {
           backgroundConfig,
           captionStyle,
           visionConfig,
+          graphicsConfig,
+          streamerConfig,
+          adBreakConfig,
+          autonomousConfig,
         })
       )
     );
-  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig]);
+  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, streamerConfig, adBreakConfig, autonomousConfig]);
 
   // ── VRM model persistence ──────────────────────────────────────────────────
   const [viewerReady, setViewerReady] = useState(false);
@@ -231,7 +268,9 @@ export default function Home() {
     const isDefault = localStorage.getItem(VRM_IS_DEFAULT_KEY);
 
     if (savedUrl && isDefault !== "true") {
-      viewer.loadVrm(savedUrl);
+      // Prefer the copy in IndexedDB (works in the streamer tab / after a reload);
+      // fall back to the saved URL for models stored before this existed.
+      loadCustomVrmUrl().then((url) => viewer.loadVrm(url ?? savedUrl));
     } else {
       const defaultUrl = buildUrl("/AvatarSample_B.vrm");
       viewer.loadVrm(defaultUrl);
@@ -240,8 +279,9 @@ export default function Home() {
     }
   }, [viewerReady, isLoading, viewer]);
 
-  const handleVrmFileLoad = useCallback((url: string) => {
+  const handleVrmFileLoad = useCallback((url: string, file?: File) => {
     viewer.loadVrm(url);
+    if (file) saveCustomVrm(file);
     localStorage.setItem(VRM_URL_KEY, url);
     localStorage.setItem(VRM_IS_DEFAULT_KEY, "false");
   }, [viewer]);
@@ -261,9 +301,18 @@ export default function Home() {
         backgroundConfig,
         captionStyle,
         visionConfig,
+        graphicsConfig,
+        streamerConfig,
+        adBreakConfig,
+        autonomousConfig,
       })
     );
-  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig]);
+  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, streamerConfig, adBreakConfig, autonomousConfig]);
+
+  // Apply 3D settings (FPS cap, resolution, lights, auto quality) to the viewer.
+  useEffect(() => {
+    if (viewerReady) viewer.applyGraphics(graphicsConfig);
+  }, [graphicsConfig, viewerReady, viewer]);
 
   const handleResetCommand = useCallback(() => {
     setChatLog([]);
@@ -567,6 +616,50 @@ export default function Home() {
     twitchProcessingRef.current = false;
   }, [notifyActivity]);
 
+  // ── Streamer control panel actions ─────────────────────────────────────────
+  // "Override": the character says exactly this text, no LLM involved.
+  const handleOverrideSpeak = useCallback(
+    async (text: string) => {
+      const talks = textsToScreenplay([text], koeiroParam);
+      if (talks.length === 0) return;
+      notifyActivity();
+      setChatProcessing(true);
+      const display = stripAsteriskActions(text);
+      await new Promise<void>((resolve) => {
+        handleSpeakAi(
+          talks[0],
+          () => setAssistantMessage(display),
+          () => {
+            setChatLog((prev) => [...prev, { role: "assistant", content: display }]);
+            setChatProcessing(false);
+            resolve();
+          }
+        );
+      });
+    },
+    [koeiroParam, handleSpeakAi, notifyActivity]
+  );
+
+  // Send to the AI; with a username it goes through the Twitch queue (shows in the chat overlay).
+  const handleStreamerSend = useCallback(
+    (text: string, username?: string) => {
+      if (!username) {
+        handleLocalSendChat(text);
+        return;
+      }
+      twitchQueueRef.current.push({
+        username,
+        message: text,
+        color: "#9146FF",
+        timestamp: Date.now(),
+        emotesTag: "",
+      });
+      setTwitchQueueCount(twitchQueueRef.current.length);
+      processTwitchQueue();
+    },
+    [handleLocalSendChat, processTwitchQueue]
+  );
+
   // ── Vision ─────────────────────────────────────────────────────────────────
   const effectiveVisionConfig: VisionConfig = {
     ...visionConfig,
@@ -602,10 +695,14 @@ export default function Home() {
       // Emote wall: fires on any chat emoji regardless of whether the AI is
       // set to respond to chat — this is purely visual, gated only on the
       // Twitch connection itself being active.
-      const emojis = extractEmojis(msg.message);
-      if (emojis.length > 0) {
-        spawnEmojiFromChat(emojis);
-      }
+      ensureThirdPartyEmotes(msg.roomId);
+      twitchFeedStore.push(msg);
+      spawnFromChat([
+        // Twitch's own emotes (from the IRC `emotes` tag), 7TV/BTTV/FFZ words, then unicode emoji.
+        ...extractTwitchEmoteUrls(msg.emotesTag).map((content) => ({ content, isImage: true })),
+        ...findThirdPartyEmoteUrls(msg.message).map((content) => ({ content, isImage: true })),
+        ...extractEmojis(msg.message).map((content) => ({ content, isImage: false })),
+      ]);
 
       if (!twitchConfig.respondToChat) return;
 
@@ -744,6 +841,8 @@ export default function Home() {
     setEventSubError(null);
     pollPredictionStore.clear();
     setChannelEmotes([]);
+    resetThirdPartyEmotes();
+    twitchFeedStore.clear();
     setTwitchConnected(false);
     twitchQueueRef.current = [];
     twitchProcessingRef.current = false;
@@ -863,6 +962,89 @@ export default function Home() {
     // need to manually trigger a resize here.
   }, [screenShareConfig.active, screenShareConfig.fullBodyView, viewer]);
 
+  // ── One active tab at a time (streamer tab <-> normal tab) ─────────────────
+  const twitchConnectedRef = useRef(false);
+  const discordConnectedRef = useRef(false);
+  useEffect(() => { twitchConnectedRef.current = twitchConnected; }, [twitchConnected]);
+  useEffect(() => { discordConnectedRef.current = discordConnected; }, [discordConnected]);
+
+  useEffect(() => {
+    const link = createLink((msg) => {
+      if (msg.type === "claim") {
+        // Someone else is taking over: hand them our live connections, then step aside.
+        link.post({
+          type: "handoff",
+          from: TAB_ID,
+          to: msg.from,
+          twitch: twitchConnectedRef.current,
+          discord: discordConnectedRef.current,
+        });
+        window.sessionStorage.setItem(STANDBY_KEY, "1");
+        setTimeout(() => window.location.reload(), 250);
+      } else if (msg.type === "handoff" && msg.to === TAB_ID) {
+        setPendingHandoff((prev) => ({
+          twitch: !!(prev?.twitch || msg.twitch),
+          discord: !!(prev?.discord || msg.discord),
+        }));
+      }
+    });
+
+    const shouldClaim = isStreamer || window.sessionStorage.getItem(CLAIM_ON_LOAD_KEY) === "1";
+    window.sessionStorage.removeItem(CLAIM_ON_LOAD_KEY);
+    if (shouldClaim) link.post({ type: "claim", from: TAB_ID, streamer: isStreamer });
+
+    const onHide = () => {
+      if (isStreamer) link.post({ type: "released", from: TAB_ID });
+    };
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      link.close();
+    };
+  }, [isStreamer]);
+
+  // Re-establish the connections the previous tab had open.
+  useEffect(() => {
+    if (!pendingHandoff || !settingsLoaded) return;
+    if (pendingHandoff.twitch && twitchConfig.channel) handleTwitchConnect();
+    if (pendingHandoff.discord && discordConfig.channelId) handleDiscordConnect();
+    setPendingHandoff(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingHandoff, settingsLoaded]);
+
+  // ── Streamer mode: control window + RTMP ───────────────────────────────────
+  useEffect(() => rtmpBroadcaster.subscribe(setBroadcast), []);
+
+  const handleOpenControlWindow = useCallback(() => {
+    // Must run directly inside the click → popup blockers allow it.
+    const win = openControlWindow();
+    if (win) setControlWin(win);
+    else window.alert("The control window was blocked by your browser. Allow pop-ups for this site and try again.");
+  }, []);
+
+  const startBroadcast = useCallback(() => {
+    setGoLivePrompt(false);
+    rtmpBroadcaster.start(streamerConfig, resolveStreamProfile(streamerConfig, detectHardware().tier));
+  }, [streamerConfig]);
+
+  // Screen capture needs a click in THIS window. If "Go Live" was pressed in the
+  // pop-out, ask for one more click here instead of failing silently.
+  const handleGoLive = useCallback(() => {
+    if ((navigator as any).userActivation?.isActive) {
+      startBroadcast();
+    } else {
+      setGoLivePrompt(true);
+      window.focus();
+    }
+  }, [startBroadcast]);
+
+  const [viewerFps, setViewerFps] = useState(0);
+  useEffect(() => {
+    if (!isStreamer) return;
+    const id = setInterval(() => setViewerFps(viewer.getPerfStats().fps), 1000);
+    return () => clearInterval(id);
+  }, [isStreamer, viewer]);
+
   const handleChangeTtsConfig = useCallback((config: TTSConfig) => {
     setTtsConfig(config);
   }, []);
@@ -891,16 +1073,18 @@ export default function Home() {
         cornerPosition={screenShareConfig.cornerPosition}
       />
 
-      <div
-        className={`transition-opacity duration-500 ${
-          uiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-      >
-        <MessageInputContainer
-          isChatProcessing={chatProcessing}
-          onChatProcessStart={handleLocalSendChat}
-        />
-      </div>
+      {!isStreamer && (
+        <div
+          className={`transition-opacity duration-500 ${
+            uiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
+        >
+          <MessageInputContainer
+            isChatProcessing={chatProcessing}
+            onChatProcessStart={handleLocalSendChat}
+          />
+        </div>
+      )}
 
       <Menu
         aiConfig={aiConfig}
@@ -964,6 +1148,9 @@ export default function Home() {
         onLoadSettings={handleLoadSettings}
         onSaveSettings={saveSettingsNow}
         onVrmFileLoad={handleVrmFileLoad}
+        graphicsConfig={graphicsConfig}
+        onChangeGraphicsConfig={setGraphicsConfig}
+        onOpenSettings={isStreamer ? handleOpenControlWindow : undefined}
       />
 
       {twitchConfig.readChat && (
@@ -990,6 +1177,92 @@ export default function Home() {
 
       {/* Falling emotes/emojis — chat emoji, bits, and alert emote walls. */}
       <EmoteWallOverlay />
+
+      {isStreamer && (
+        <>
+          <StreamerToolbar
+            visible={uiVisible}
+            broadcast={broadcast}
+            fps={viewerFps}
+            onGoLive={handleGoLive}
+            onStop={() => rtmpBroadcaster.stop()}
+          />
+
+          {goLivePrompt && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60">
+              <div className="bg-white rounded-16 p-24 max-w-sm mx-16 text-center text-text-primary shadow-2xl">
+                <div className="typography-20 font-bold mb-8">Ready to go live</div>
+                <div className="text-sm text-text-primary/70 mb-16">
+                  The browser needs one click in this window to start capturing. Choose{" "}
+                  <b>This tab</b> and tick <b>Share tab audio</b>.
+                </div>
+                <div className="flex gap-8 justify-center">
+                  <button onClick={() => setGoLivePrompt(false)} className="px-16 py-8 rounded-oval border-2 border-surface3 font-bold text-sm">
+                    Cancel
+                  </button>
+                  <button onClick={startBroadcast} className="px-20 py-8 rounded-oval bg-red-500 hover:bg-red-600 text-white font-bold text-sm">
+                    ● Start capture
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {controlWin && (
+            <StreamerControlWindow
+              win={controlWin}
+              onClosed={() => setControlWin(null)}
+              chatLog={chatLog}
+              chatProcessing={chatProcessing}
+              onSend={handleStreamerSend}
+              onOverride={handleOverrideSpeak}
+              twitchConfig={twitchConfig}
+              twitchConnected={twitchConnected}
+              onChangeTwitchConfig={setTwitchConfig}
+              onTwitchConnect={handleTwitchConnect}
+              onTwitchDisconnect={handleTwitchDisconnect}
+              ttsConfig={ttsConfig}
+              onChangeTTSConfig={handleChangeTtsConfig}
+              koeiroParam={koeiroParam}
+              onChangeKoeiroParam={(x, y) => setKoeiroParam({ speakerX: x, speakerY: y })}
+              aiConfig={aiConfig}
+              onChangeAiConfig={setAiConfig}
+              captionStyle={captionStyle}
+              onChangeCaptionStyle={setCaptionStyle}
+              backgroundConfig={backgroundConfig}
+              onChangeBackgroundConfig={setBackgroundConfig}
+              visionConfig={visionConfig}
+              onChangeVisionConfig={setVisionConfig}
+              visionStatus={visionStatus}
+              visionLastDescription={visionLastDescription}
+              visionLastCaptureTime={visionLastCaptureTime}
+              visionSecondsUntilNext={visionSecondsUntilNext}
+              visionError={visionError}
+              onVisionCaptureNow={visionCaptureNow}
+              screenShareConfig={screenShareConfig}
+              graphicsConfig={graphicsConfig}
+              onChangeGraphicsConfig={setGraphicsConfig}
+              streamerConfig={streamerConfig}
+              onChangeStreamerConfig={setStreamerConfig}
+              broadcast={broadcast}
+              goLivePending={goLivePrompt}
+              onGoLive={handleGoLive}
+              onStopBroadcast={() => rtmpBroadcaster.stop()}
+            />
+          )}
+        </>
+      )}
     </div>
   );
+}
+
+// ── Page: decides between the app and the "another tab is in charge" screen ──
+export default function Page() {
+  const [mode, setMode] = useState<"loading" | "standby" | "app">("loading");
+  useEffect(() => {
+    setMode(window.sessionStorage.getItem(STANDBY_KEY) === "1" ? "standby" : "app");
+  }, []);
+  if (mode === "loading") return null;
+  if (mode === "standby") return <StandbyScreen />;
+  return <Home />;
 }
