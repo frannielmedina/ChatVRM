@@ -86,6 +86,8 @@ import { StreamerControlWindow } from "@/components/streamerControlWindow";
 import { StreamerToolbar } from "@/components/streamerToolbar";
 import { StandbyScreen } from "@/components/standbyScreen";
 import { saveCustomVrm, loadCustomVrmUrl } from "@/features/vrmViewer/vrmStorage";
+import { Stage } from "@/components/stage";
+import { StageSizeId, DEFAULT_STAGE_SIZE, parseStageSize, STAGE_ELEMENT_ID } from "@/features/stage/stageConfig";
 import { pollPredictionStore } from "@/features/pollPrediction/pollPredictionStore";
 import { parseSlashCommand, extractAiDirective } from "@/features/pollPrediction/pollParser";
 import { createTwitchPoll, createTwitchPrediction } from "@/features/twitch/twitchPollsApi";
@@ -133,6 +135,7 @@ function Home() {
   const [streamerConfig, setStreamerConfig] = useState<StreamerConfig>(DEFAULT_STREAMER_CONFIG);
   // Home is only ever mounted client-side (see Page below), so reading the URL here is safe.
   const [isStreamer] = useState(() => isStreamerUrl());
+  const [stageSize, setStageSize] = useState<StageSizeId>(DEFAULT_STAGE_SIZE);
   const [controlWin, setControlWin] = useState<Window | null>(null);
   const [broadcast, setBroadcast] = useState<BroadcastState>(rtmpBroadcaster.getState());
   const [goLivePrompt, setGoLivePrompt] = useState(false);
@@ -210,6 +213,10 @@ function Home() {
           setCaptionStyle({ ...DEFAULT_CAPTION_STYLE, ...params.captionStyle });
         if (params.visionConfig)
           setVisionConfig({ ...DEFAULT_VISION_CONFIG, ...params.visionConfig });
+        if (params.stageSize) setStageSize(params.stageSize);
+        if (params.screenShareConfig)
+          // never auto-resume a share: the browser's picker has to be used again
+          setScreenShareConfig({ ...DEFAULT_SCREEN_SHARE_CONFIG, ...params.screenShareConfig, active: false });
         if (params.graphicsConfig)
           setGraphicsConfig({ ...DEFAULT_GRAPHICS_CONFIG, ...params.graphicsConfig });
         if (params.streamerConfig)
@@ -240,13 +247,15 @@ function Home() {
           captionStyle,
           visionConfig,
           graphicsConfig,
+          stageSize,
+          screenShareConfig,
           streamerConfig,
           adBreakConfig,
           autonomousConfig,
         })
       )
     );
-  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, streamerConfig, adBreakConfig, autonomousConfig]);
+  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
 
   // ── VRM model persistence ──────────────────────────────────────────────────
   const [viewerReady, setViewerReady] = useState(false);
@@ -302,12 +311,14 @@ function Home() {
         captionStyle,
         visionConfig,
         graphicsConfig,
+        stageSize,
+        screenShareConfig,
         streamerConfig,
         adBreakConfig,
         autonomousConfig,
       })
     );
-  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, streamerConfig, adBreakConfig, autonomousConfig]);
+  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
 
   // Apply 3D settings (FPS cap, resolution, lights, auto quality) to the viewer.
   useEffect(() => {
@@ -929,7 +940,7 @@ function Home() {
     setScreenShareConfig((prev) => ({ ...prev, active: false }));
   }, []);
 
-  const handleScreenShareStart = useCallback(async () => {
+  const handleScreenShareStart = useCallback(async (devices?: MediaDevices) => {
     if (screenShareConfig.mode === "vdoninja") {
       const url = screenShareConfig.vdoninjaRoomId?.trim() || "";
       if (!url) return;
@@ -937,7 +948,7 @@ function Home() {
       setScreenShareConfig((prev) => ({ ...prev, active: true }));
     } else {
       try {
-        const stream = await startScreenShare();
+        const stream = await startScreenShare(!!screenShareConfig.shareAudio, devices);
         setScreenStream(stream);
         setScreenShareConfig((prev) => ({ ...prev, active: true }));
         stream.getVideoTracks()[0].addEventListener("ended", () => {
@@ -961,6 +972,11 @@ function Home() {
     // animates between full-screen and the corner "facecam" size — no
     // need to manually trigger a resize here.
   }, [screenShareConfig.active, screenShareConfig.fullBodyView, viewer]);
+
+  // Zoom / camera height tweaks for the shared-screen framing.
+  useEffect(() => {
+    viewer.setScreenShareTuning(screenShareConfig.zoom, screenShareConfig.shiftY);
+  }, [screenShareConfig.zoom, screenShareConfig.shiftY, viewer]);
 
   // ── One active tab at a time (streamer tab <-> normal tab) ─────────────────
   const twitchConnectedRef = useRef(false);
@@ -1024,8 +1040,16 @@ function Home() {
 
   const startBroadcast = useCallback(() => {
     setGoLivePrompt(false);
-    rtmpBroadcaster.start(streamerConfig, resolveStreamProfile(streamerConfig, detectHardware().tier));
-  }, [streamerConfig]);
+    const profile = resolveStreamProfile(streamerConfig, detectHardware().tier);
+    // With a locked stage size, stream exactly that scene: crop the capture to the stage
+    // (Chrome region capture) and output at the stage's resolution.
+    const dims = parseStageSize(stageSize);
+    rtmpBroadcaster.start(
+      streamerConfig,
+      dims ? { ...profile, width: dims.w, height: dims.h } : profile,
+      { cropElement: dims ? document.getElementById(STAGE_ELEMENT_ID) : null }
+    );
+  }, [streamerConfig, stageSize]);
 
   // Screen capture needs a click in THIS window. If "Go Live" was pressed in the
   // pop-out, ask for one more click here instead of failing silently.
@@ -1057,20 +1081,26 @@ function Home() {
         <LoadingScreen onComplete={() => setIsLoading(false)} />
       )}
 
-      <BackgroundRenderer config={backgroundConfig} />
+      <BackgroundRenderer config={backgroundConfig} stageFixed={stageSize !== "free"} />
 
       <Introduction aiConfig={aiConfig} onChangeAiConfig={setAiConfig} />
 
+      <Stage size={stageSize}>
       <ScreenShareBackground
         stream={screenStream}
         vdoninjaUrl={vdoninjaUrl}
         mode={screenShareConfig.mode}
         active={screenShareConfig.active}
+        playAudio={screenShareConfig.shareAudio}
       />
 
       <VrmViewer
         cornerMode={screenShareConfig.active}
         cornerPosition={screenShareConfig.cornerPosition}
+        boxWidth={screenShareConfig.boxWidth}
+        boxHeightPct={screenShareConfig.boxHeightPct}
+        offsetX={screenShareConfig.offsetX}
+        offsetY={screenShareConfig.offsetY}
       />
 
       {!isStreamer && (
@@ -1136,7 +1166,7 @@ function Home() {
         onTwitchConnect={handleTwitchConnect}
         onTwitchDisconnect={handleTwitchDisconnect}
         onChangeScreenShareConfig={setScreenShareConfig}
-        onScreenShareStart={handleScreenShareStart}
+        onScreenShareStart={() => handleScreenShareStart()}
         onScreenShareStop={handleScreenShareStop}
         onChangeBackgroundConfig={setBackgroundConfig}
         onChangeCaptionStyle={setCaptionStyle}
@@ -1151,6 +1181,8 @@ function Home() {
         graphicsConfig={graphicsConfig}
         onChangeGraphicsConfig={setGraphicsConfig}
         onOpenSettings={isStreamer ? handleOpenControlWindow : undefined}
+        stageSize={stageSize}
+        onChangeStageSize={setStageSize}
       />
 
       {twitchConfig.readChat && (
@@ -1177,6 +1209,7 @@ function Home() {
 
       {/* Falling emotes/emojis — chat emoji, bits, and alert emote walls. */}
       <EmoteWallOverlay />
+      </Stage>
 
       {isStreamer && (
         <>
@@ -1184,6 +1217,8 @@ function Home() {
             visible={uiVisible}
             broadcast={broadcast}
             fps={viewerFps}
+            stageSize={stageSize}
+            onChangeStageSize={setStageSize}
             onGoLive={handleGoLive}
             onStop={() => rtmpBroadcaster.stop()}
           />
@@ -1242,6 +1277,12 @@ function Home() {
               screenShareConfig={screenShareConfig}
               graphicsConfig={graphicsConfig}
               onChangeGraphicsConfig={setGraphicsConfig}
+              onChangeScreenShareConfig={setScreenShareConfig}
+              // the picker must be opened from the window that got the click
+              onScreenShareStart={() => handleScreenShareStart(controlWin.navigator.mediaDevices)}
+              onScreenShareStop={handleScreenShareStop}
+              stageSize={stageSize}
+              onChangeStageSize={setStageSize}
               streamerConfig={streamerConfig}
               onChangeStreamerConfig={setStreamerConfig}
               broadcast={broadcast}
