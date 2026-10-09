@@ -3,6 +3,15 @@ import { Model } from "./model";
 import { loadVRMAnimation } from "@/lib/VRMAnimation/loadVRMAnimation";
 import { buildUrl } from "@/utils/buildUrl";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import {
+  GraphicsConfig,
+  DEFAULT_GRAPHICS_CONFIG,
+  MIN_RESOLUTION_SCALE,
+  PerfStats,
+  autoProfileFor,
+  detectHardware,
+  readStoredGraphicsConfig,
+} from "@/features/graphics/graphicsConfig";
 
 export class Viewer {
   public isReady: boolean;
@@ -44,6 +53,29 @@ export class Viewer {
   // load (bind/idle pose). Used to drive the full-body auto-fit above.
   private _modelBounds?: { height: number; width: number; centerY: number };
 
+  // ── Graphics / performance ─────────────────────────────────────────────────
+  private _dirLight: THREE.DirectionalLight;
+  private _ambLight: THREE.AmbientLight;
+  private _gfx: GraphicsConfig = DEFAULT_GRAPHICS_CONFIG;
+  private _frameInterval = 0; // seconds between rendered frames (0 = unlimited)
+  private _accum = 0;
+  private _loopStarted = false;
+  // Live FPS measurement (rendered frames per second, refreshed every ~1s)
+  private _fpsFrames = 0;
+  private _fpsWindowStart = 0;
+  private _fps = 0;
+  // Auto-quality state: `_autoScale` is what the live scaler is currently using
+  // (multiplied into resolutionScale), `_autoCeiling` is the highest value it
+  // is allowed to climb back to (lowered whenever a climb caused a slowdown).
+  private _autoScale = 1;
+  private _autoCeiling = 1;
+  private _autoLowSamples = 0;
+  private _autoHighSamples = 0;
+  private _autoCeilingSetAt = 0;
+  private _autoAdjusted = false;
+  /** Whether the live WebGL context was created with antialiasing (it can't change afterwards). */
+  public antialiasActive = true;
+
   constructor() {
     this.isReady = false;
     const scene = new THREE.Scene();
@@ -52,9 +84,11 @@ export class Viewer {
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
     directionalLight.position.set(1.0, 1.0, 1.0).normalize();
     scene.add(directionalLight);
+    this._dirLight = directionalLight;
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
     scene.add(ambientLight);
+    this._ambLight = ambientLight;
 
     this._clock = new THREE.Clock();
     this._clock.start();
@@ -93,10 +127,22 @@ export class Viewer {
     const width = parentElement?.clientWidth || canvas.width;
     const height = parentElement?.clientHeight || canvas.height;
 
-    this._renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    // Antialiasing can only be chosen when the GL context is created, so it
+    // is read straight from the saved settings here (changing it in the UI
+    // asks for a reload).
+    const stored = readStoredGraphicsConfig();
+    this._gfx = stored;
+    this.antialiasActive = stored.antialias;
+    this._renderer = new THREE.WebGLRenderer({
+      canvas,
+      alpha: true,
+      antialias: stored.antialias,
+      // Needed so the canvas can be captured reliably for streaming.
+      preserveDrawingBuffer: false,
+    });
     this._renderer.outputEncoding = THREE.sRGBEncoding;
     this._renderer.setSize(width, height);
-    this._renderer.setPixelRatio(window.devicePixelRatio);
+    this.applyGraphics(stored);
 
     this._camera = new THREE.PerspectiveCamera(this.DEFAULT_FOV, width / height, 0.1, 20.0);
     this._camera.position.copy(this.DEFAULT_CAMERA_POS);
@@ -125,7 +171,145 @@ export class Viewer {
     window.addEventListener("resize", () => { this.resize(); });
 
     this.isReady = true;
-    this.update();
+    // setup() can run more than once (canvas remount) — never start a second loop.
+    if (!this._loopStarted) {
+      this._loopStarted = true;
+      this.update();
+    }
+  }
+
+  // ── Graphics API ───────────────────────────────────────────────────────────
+  private effectivePixelRatio(): number {
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const scale = this._gfx.autoQuality
+      ? this._gfx.resolutionScale * this._autoScale
+      : this._gfx.resolutionScale;
+    const ratio = Math.min(dpr * scale, this._gfx.maxPixelRatio);
+    return Math.max(0.3, ratio);
+  }
+
+  private applyPixelRatio() {
+    if (!this._renderer) return;
+    const parent = this._renderer.domElement.parentElement;
+    this._renderer.setPixelRatio(this.effectivePixelRatio());
+    if (parent && parent.clientWidth && parent.clientHeight) {
+      this._renderer.setSize(parent.clientWidth, parent.clientHeight);
+    }
+  }
+
+  public applyGraphics(cfg: GraphicsConfig) {
+    const prevAuto = this._gfx.autoQuality;
+    this._gfx = { ...DEFAULT_GRAPHICS_CONFIG, ...cfg };
+
+    // Frame limiter. In auto mode the tier decides the target if the user left it unlimited.
+    const target = this.targetFps();
+    this._frameInterval = target > 0 ? 1 / target : 0;
+
+    // Lights
+    this._dirLight.intensity = this._gfx.lightIntensity;
+    this._ambLight.intensity = this._gfx.ambientIntensity;
+    const az = THREE.MathUtils.degToRad(this._gfx.lightAzimuth);
+    const el = THREE.MathUtils.degToRad(this._gfx.lightElevation);
+    this._dirLight.position
+      .set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el))
+      .normalize();
+
+    // Auto quality: start from the hardware tier's recommendation.
+    if (this._gfx.autoQuality && !prevAuto) {
+      this._autoScale = 1;
+      this._autoCeiling = 1;
+      this._autoLowSamples = 0;
+      this._autoHighSamples = 0;
+    }
+    if (this._gfx.autoQuality) {
+      const tierProfile = autoProfileFor(detectHardware().tier);
+      // Start a fresh auto session at the tier's recommended resolution.
+      if (!prevAuto || this._autoScale === 1) {
+        this._autoScale = Math.min(1, Math.max(MIN_RESOLUTION_SCALE, tierProfile.resolutionScale));
+        this._autoCeiling = Math.min(1, Math.max(this._autoScale, tierProfile.resolutionScale));
+      }
+    } else {
+      this._autoAdjusted = false;
+    }
+    this.applyPixelRatio();
+  }
+
+  /**
+   * Effective FPS cap. Manual mode: exactly what the user chose (0 = unlimited).
+   * Auto mode: the user's value is treated as a maximum, and weak hardware
+   * (the "low" tier) is held to 30 so it doesn't thrash trying to do 60.
+   */
+  private targetFps(): number {
+    const user = this._gfx.fpsLimit;
+    if (!this._gfx.autoQuality) return user;
+    const tierCap = detectHardware().tier === "low" ? 30 : 0;
+    if (tierCap === 0) return user;
+    return user > 0 ? Math.min(user, tierCap) : tierCap;
+  }
+
+  public getPerfStats(): PerfStats {
+    return {
+      fps: Math.round(this._fps),
+      pixelRatio: Number(this.effectivePixelRatio().toFixed(2)),
+      resolutionScale: Number(
+        (this._gfx.autoQuality ? this._gfx.resolutionScale * this._autoScale : this._gfx.resolutionScale).toFixed(2)
+      ),
+      fpsTarget: this.targetFps(),
+      tier: detectHardware().tier,
+      autoAdjusted: this._autoAdjusted,
+    };
+  }
+
+  /** Called once per rendered frame; measures FPS and, in auto mode, nudges resolution to hold the target. */
+  private trackFrame(now: number) {
+    if (this._fpsWindowStart === 0) this._fpsWindowStart = now;
+    this._fpsFrames++;
+    const elapsed = now - this._fpsWindowStart;
+    if (elapsed < 1000) return;
+
+    this._fps = (this._fpsFrames * 1000) / elapsed;
+    this._fpsFrames = 0;
+    this._fpsWindowStart = now;
+
+    if (!this._gfx.autoQuality || document.hidden) return;
+
+    // What we are trying to hold: the user's cap, or 60 when unlimited.
+    const target = this.targetFps() > 0 ? this.targetFps() : 60;
+    // A little tolerance: frame timing on a 60Hz display won't hit 60.0 exactly.
+    if (this._fps < target * 0.85) {
+      this._autoLowSamples++;
+      this._autoHighSamples = 0;
+    } else if (this._fps >= target * 0.95) {
+      this._autoHighSamples++;
+      this._autoLowSamples = 0;
+    } else {
+      this._autoLowSamples = 0;
+      this._autoHighSamples = 0;
+    }
+
+    // Struggling for 3 seconds in a row → drop resolution and remember not to climb back to this level.
+    if (this._autoLowSamples >= 3 && this._autoScale > MIN_RESOLUTION_SCALE) {
+      this._autoCeiling = Math.max(MIN_RESOLUTION_SCALE, this._autoScale - 0.05);
+      this._autoCeilingSetAt = now;
+      this._autoScale = Math.max(MIN_RESOLUTION_SCALE, this._autoScale - 0.1);
+      this._autoLowSamples = 0;
+      this._autoAdjusted = true;
+      this.applyPixelRatio();
+      return;
+    }
+
+    // Comfortable for 10 seconds → creep back up, but never past the learned ceiling.
+    // The ceiling relaxes after 60s so a temporary spike (loading, another app) doesn't pin quality low forever.
+    if (now - this._autoCeilingSetAt > 60000) {
+      this._autoCeiling = Math.min(1, this._autoCeiling + 0.1);
+      this._autoCeilingSetAt = now;
+    }
+    if (this._autoHighSamples >= 10 && this._autoScale < this._autoCeiling) {
+      this._autoScale = Math.min(this._autoCeiling, this._autoScale + 0.05);
+      this._autoHighSamples = 0;
+      this._autoAdjusted = true;
+      this.applyPixelRatio();
+    }
   }
 
   public resize() {
@@ -135,7 +319,7 @@ export class Viewer {
     const width = parentElement.clientWidth;
     const height = parentElement.clientHeight;
     if (width === 0 || height === 0) return;
-    this._renderer.setPixelRatio(window.devicePixelRatio);
+    this._renderer.setPixelRatio(this.effectivePixelRatio());
     this._renderer.setSize(width, height);
     if (!this._camera) return;
     this._camera.aspect = width / height;
@@ -274,10 +458,22 @@ export class Viewer {
 
   public update = () => {
     requestAnimationFrame(this.update);
-    const delta = this._clock.getDelta();
+    this._accum += this._clock.getDelta();
+
+    // FPS limiter: skip this display refresh if it's too soon for the next
+    // frame. The small tolerance avoids a 60fps cap on a 60Hz monitor
+    // randomly dropping to 30 because of timer jitter.
+    const interval = this._frameInterval;
+    if (interval > 0 && this._accum < interval - 0.0015) return;
+
+    // Clamp so coming back from a hidden tab doesn't fling the spring bones.
+    const delta = Math.min(this._accum, 0.1);
+    this._accum = interval > 0 ? Math.min(Math.max(this._accum - interval, 0), interval) : 0;
+
     if (this.model) this.model.update(delta);
     if (this._renderer && this._camera) {
       this._renderer.render(this._scene, this._camera);
+      this.trackFrame(performance.now());
     }
   };
 }
