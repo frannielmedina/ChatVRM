@@ -1,6 +1,7 @@
 import React, { useCallback } from "react";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
 import { Link } from "./link";
+import { openStreamerWindow } from "@/features/streamer/streamerLink";
 
 type Props = {
   config: TwitchConfig;
@@ -8,6 +9,8 @@ type Props = {
   onChangeConfig: (config: TwitchConfig) => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  /** Hide the "Streamer Mode" launcher (it makes no sense inside the streamer window itself). */
+  hideStreamerMode?: boolean;
 };
 
 export const TwitchSettings = ({
@@ -16,6 +19,7 @@ export const TwitchSettings = ({
   onChangeConfig,
   onConnect,
   onDisconnect,
+  hideStreamerMode = false,
 }: Props) => {
   const update = useCallback(
     (partial: Partial<TwitchConfig>) => {
@@ -25,6 +29,27 @@ export const TwitchSettings = ({
   );
 
   return (
+    <>
+    {!hideStreamerMode && (
+      <div className="my-40">
+        <div className="my-16 typography-20 font-bold">🎬 Streamer Mode</div>
+        <div className="p-16 bg-surface1 rounded-8">
+          <div className="text-sm text-text-primary/70 mb-12">
+            Opens a clean stage in a new tab — the model looks exactly like it does here (including
+            game / screen-share mode) — with its own Settings button that pops out a control window
+            (chat, TTS, LLM, captions, background, vision, 3D, and RTMP broadcasting). Twitch and
+            Discord connections move to the streamer tab, and this tab goes on standby so the AI
+            doesn&apos;t answer twice.
+          </div>
+          <button
+            onClick={() => openStreamerWindow()}
+            className="px-24 py-8 bg-[#9146FF] hover:bg-[#a970ff] text-white font-bold rounded-oval"
+          >
+            Open Streamer Window
+          </button>
+        </div>
+      </div>
+    )}
     <div className="my-40">
       <div className="my-16 typography-20 font-bold flex items-center gap-8">
         <span>Twitch Integration</span>
@@ -115,5 +140,6 @@ export const TwitchSettings = ({
         </div>
       </div>
     </div>
+    </>
   );
 };

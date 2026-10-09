@@ -12,6 +12,8 @@ import { CaptionSettings } from "./captionSettings";
 import { VisionSettings } from "./visionSettings";
 import { DiscordSettings } from "./discordSettings";
 import { SettingsPorter } from "./settingsPorter";
+import { GraphicsSettings } from "./graphicsSettings";
+import { GraphicsConfig } from "@/features/graphics/graphicsConfig";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
 import { ScreenShareConfig } from "@/features/screenShare/screenShare";
@@ -60,6 +62,8 @@ type Props = {
   onTestResub: () => void;
   onTestStreak: () => void;
   onTestBits: () => void;
+  graphicsConfig: GraphicsConfig;
+  onChangeGraphicsConfig: (config: GraphicsConfig) => void;
   isMobile: boolean;
   onClickClose: () => void;
   onSaveAndClose: () => void;
@@ -143,6 +147,7 @@ type TabId =
   | "systemPrompt"
   | "twitch"
   | "vision"
+  | "graphics"
   | "screenShare";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
@@ -155,6 +160,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "systemPrompt", label: "System Prompt", icon: "📝" },
   { id: "twitch", label: "Twitch", icon: "🟣" },
   { id: "vision", label: "Vision", icon: "👁️" },
+  { id: "graphics", label: "3D", icon: "🎮" },
   { id: "screenShare", label: "Screen Share", icon: "🖥️" },
 ];
 
@@ -226,6 +232,8 @@ export const SettingsContent = (props: Props) => {
     onDiscordConnect,
     onDiscordDisconnect,
     onLoadSettings,
+    graphicsConfig,
+    onChangeGraphicsConfig,
     isMobile,
   } = props;
 
@@ -722,6 +730,13 @@ export const SettingsContent = (props: Props) => {
                 groqApiKey={aiConfig.provider === "groq" ? aiConfig.apiKey : undefined}
               />
             </>
+          )}
+
+          {activeTab === "graphics" && (
+            <GraphicsSettings
+              config={graphicsConfig}
+              onChangeConfig={onChangeGraphicsConfig}
+            />
           )}
 
           {activeTab === "screenShare" && (

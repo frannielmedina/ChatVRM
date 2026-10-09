@@ -18,6 +18,7 @@ import { VisionStatus } from "@/features/vision/useVision";
 import { DiscordConfig } from "@/features/discord/discordConfig";
 import { AdBreakConfig } from "@/features/adBreak/adBreakConfig";
 import { AutonomousConfig } from "@/features/autonomous/autonomousConfig";
+import { GraphicsConfig } from "@/features/graphics/graphicsConfig";
 
 type Props = {
   aiConfig: AIProviderConfig;
@@ -80,7 +81,11 @@ type Props = {
   onDiscordDisconnect: () => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
   onSaveSettings: () => void;
-  onVrmFileLoad?: (url: string) => void;
+  onVrmFileLoad?: (url: string, file?: File) => void;
+  graphicsConfig: GraphicsConfig;
+  onChangeGraphicsConfig: (config: GraphicsConfig) => void;
+  /** Streamer mode: the Settings button opens the pop-out control window instead of the modal. */
+  onOpenSettings?: () => void;
 };
 
 export const Menu = ({
@@ -145,6 +150,9 @@ export const Menu = ({
   onLoadSettings,
   onSaveSettings,
   onVrmFileLoad,
+  graphicsConfig,
+  onChangeGraphicsConfig,
+  onOpenSettings,
 }: Props) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showChatLog, setShowChatLog] = useState(false);
@@ -170,7 +178,7 @@ export const Menu = ({
         const blob = new Blob([file], { type: "application/octet-stream" });
         const url = window.URL.createObjectURL(blob);
         if (onVrmFileLoad) {
-          onVrmFileLoad(url);
+          onVrmFileLoad(url, file);
         } else {
           viewer.loadVrm(url);
         }
@@ -213,7 +221,7 @@ export const Menu = ({
             iconName="24/Menu"
             label="Settings"
             isProcessing={false}
-            onClick={() => setShowSettings(true)}
+            onClick={() => (onOpenSettings ? onOpenSettings() : setShowSettings(true))}
           />
 
           {/* Chat Log */}
@@ -323,6 +331,8 @@ export const Menu = ({
           onTestBits={onTestBits}
           autonomousConfig={autonomousConfig}
           onChangeAutonomousConfig={onChangeAutonomousConfig}
+          graphicsConfig={graphicsConfig}
+          onChangeGraphicsConfig={onChangeGraphicsConfig}
           isMobile={isMobile}
           onClickClose={() => setShowSettings(false)}
           onSaveAndClose={handleSaveAndClose}
