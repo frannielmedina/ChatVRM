@@ -83,7 +83,11 @@ class RtmpBroadcaster {
     this.set({ status: "error", error: message });
   }
 
-  async start(cfg: StreamerConfig, profile: ResolvedStreamProfile) {
+  async start(
+    cfg: StreamerConfig,
+    profile: ResolvedStreamProfile,
+    opts: { cropElement?: HTMLElement | null } = {}
+  ) {
     if (this.state.status !== "idle" && this.state.status !== "error") return;
     if (!cfg.rtmpUrl.trim() || !cfg.streamKey.trim()) {
       this.set({ status: "error", error: "Enter the RTMP URL and your stream key first." });
@@ -95,7 +99,9 @@ class RtmpBroadcaster {
     }
 
     this.set({ status: "capturing", error: null, stats: EMPTY_STATS });
-    const res = RESOLUTIONS[profile.resolution];
+    const res = profile.width && profile.height
+      ? { w: profile.width, h: profile.height }
+      : RESOLUTIONS[profile.resolution];
 
     // 1 ── capture this tab ─────────────────────────────────────────────────
     let stream: MediaStream;
@@ -119,6 +125,17 @@ class RtmpBroadcaster {
     this.stream = stream;
 
     const vTrack = stream.getVideoTracks()[0];
+
+    // Region Capture (Chrome 104+): when the stage is a fixed size, crop the tab capture to
+    // exactly the stage so the stream never includes the browser's empty margins/toolbar.
+    if (opts.cropElement && (window as any).CropTarget && (vTrack as any)?.cropTo) {
+      try {
+        const target = await (window as any).CropTarget.fromElement(opts.cropElement);
+        await (vTrack as any).cropTo(target);
+      } catch (e) {
+        console.warn("[broadcast] region crop unavailable, streaming the whole tab", e);
+      }
+    }
     const settings = vTrack?.getSettings?.() ?? {};
     const hasAudio = stream.getAudioTracks().length > 0;
     vTrack?.addEventListener("ended", () => this.stop());

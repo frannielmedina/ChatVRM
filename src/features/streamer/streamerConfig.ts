@@ -51,6 +51,9 @@ export type ResolvedStreamProfile = {
   fps: number;
   videoBitrateKbps: number;
   audioBitrateKbps: number;
+  /** Exact output size (overrides `resolution`) — used when the stage is locked to a size. */
+  width?: number;
+  height?: number;
 };
 
 // Conservative, Twitch-friendly ladders (Twitch non-partner cap is ~6000 kbps).

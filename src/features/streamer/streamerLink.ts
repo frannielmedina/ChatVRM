@@ -43,10 +43,16 @@ export function isStreamerUrl(): boolean {
 }
 
 /** Opens (or focuses) the streamer window. MUST be called directly from a click handler or the popup blocker eats it. */
-export function openStreamerWindow(): Window | null {
+export function openStreamerWindow(asPopupWindow = false): Window | null {
   const url = new URL(window.location.href);
   url.searchParams.set("streamer", "1");
-  const win = window.open(url.toString(), "chatvrm-streamer");
+  // A script-opened popup window (unlike a tab) can be resized by the page —
+  // which makes the "resize window to 1280×720" buttons actually work.
+  const win = window.open(
+    url.toString(),
+    "chatvrm-streamer",
+    asPopupWindow ? "popup=yes,width=1280,height=760,resizable=yes" : undefined
+  );
   win?.focus();
   return win;
 }
