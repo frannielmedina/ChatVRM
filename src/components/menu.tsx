@@ -2,6 +2,8 @@ import { IconButton } from "./iconButton";
 import { Message } from "@/features/messages/messages";
 import { ChatLogDialog } from "./chatLogDialog";
 import React, { useCallback, useContext, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { StageSizeId } from "@/features/stage/stageConfig";
 import { Settings } from "./settings";
 import { ViewerContext } from "@/features/vrmViewer/viewerContext";
 import { AssistantText } from "./assistantText";
@@ -86,6 +88,8 @@ type Props = {
   onChangeGraphicsConfig: (config: GraphicsConfig) => void;
   /** Streamer mode: the Settings button opens the pop-out control window instead of the modal. */
   onOpenSettings?: () => void;
+  stageSize: StageSizeId;
+  onChangeStageSize: (size: StageSizeId) => void;
 };
 
 export const Menu = ({
@@ -153,6 +157,8 @@ export const Menu = ({
   graphicsConfig,
   onChangeGraphicsConfig,
   onOpenSettings,
+  stageSize,
+  onChangeStageSize,
 }: Props) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showChatLog, setShowChatLog] = useState(false);
@@ -290,15 +296,20 @@ export const Menu = ({
       </div>
 
       {/* Chat Log Dialog */}
-      {showChatLog && (
-        <ChatLogDialog
-          messages={chatLog}
-          onClose={() => setShowChatLog(false)}
-        />
-      )}
+      {/* Dialogs are portaled to <body> so a scaled fixed-size stage never shrinks them */}
+      {showChatLog &&
+        createPortal(
+          <div className="font-M_PLUS_2">
+            <ChatLogDialog
+              messages={chatLog}
+              onClose={() => setShowChatLog(false)}
+            />
+          </div>,
+          document.body
+        )}
 
-      {showSettings && (
-        <Settings
+      {showSettings && createPortal(
+        <div className="font-M_PLUS_2"><Settings
           aiConfig={aiConfig}
           chatLog={chatLog}
           systemPrompt={systemPrompt}
@@ -361,7 +372,10 @@ export const Menu = ({
           onDiscordConnect={onDiscordConnect}
           onDiscordDisconnect={onDiscordDisconnect}
           onLoadSettings={onLoadSettings}
-        />
+          stageSize={stageSize}
+          onChangeStageSize={onChangeStageSize}
+        /></div>,
+        document.body
       )}
 
       {/* Caption */}

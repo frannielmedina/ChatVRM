@@ -1,5 +1,24 @@
 import React, { useCallback } from "react";
-import { ScreenShareConfig } from "@/features/screenShare/screenShare";
+import { ScreenShareConfig, DEFAULT_SCREEN_SHARE_CONFIG } from "@/features/screenShare/screenShare";
+
+const Slide = ({
+  label, value, min, max, step, fmt, onChange, disabled,
+}: {
+  label: string; value: number; min: number; max: number; step: number;
+  fmt: (v: number) => string; onChange: (v: number) => void; disabled?: boolean;
+}) => (
+  <div className={`mb-8 ${disabled ? "opacity-40" : ""}`}>
+    <div className="text-sm font-bold flex justify-between">
+      <span>{label}</span>
+      <span className="font-normal text-text-primary/60">{fmt(value)}</span>
+    </div>
+    <input
+      type="range" min={min} max={max} step={step} value={value} disabled={disabled}
+      className="input-range w-full"
+      onChange={(e) => onChange(Number(e.target.value))}
+    />
+  </div>
+);
 
 type Props = {
   config: ScreenShareConfig;
@@ -46,7 +65,7 @@ export const ScreenShareSettings = ({
             >
               <div className="font-bold text-sm">🖥️ Chrome Screen Share</div>
               <div className="text-xs text-text-primary/60 mt-2">
-                Uses browser native getDisplayMedia — simplest option
+                Share a screen, window or tab — Chrome, Edge &amp; Firefox
               </div>
             </button>
             <button
@@ -91,38 +110,66 @@ export const ScreenShareSettings = ({
             >
               <div className="font-bold text-sm">🤏 Close-Up</div>
               <div className="text-xs text-text-primary/60 mt-2">
-                Tighter fixed shot, upper body only
+                Waist-up shot, measured from your model
               </div>
             </button>
           </div>
         </div>
 
         <div className="mb-16">
-          <div className="font-bold mb-8">Character Corner</div>
-          <div className="grid grid-cols-2 gap-8">
-            <button
-              onClick={() => update({ cornerPosition: "left" })}
-              className={`p-12 rounded-8 border-2 text-left transition-all ${
-                config.cornerPosition === "left"
-                  ? "border-primary bg-primary/10"
-                  : "border-surface3 bg-surface3 hover:border-primary/50"
-              }`}
-            >
-              <div className="font-bold text-sm">⬅ Bottom Left</div>
-            </button>
-            <button
-              onClick={() => update({ cornerPosition: "right" })}
-              className={`p-12 rounded-8 border-2 text-left transition-all ${
-                config.cornerPosition === "right" || !config.cornerPosition
-                  ? "border-primary bg-primary/10"
-                  : "border-surface3 bg-surface3 hover:border-primary/50"
-              }`}
-            >
-              <div className="font-bold text-sm">Bottom Right ➡</div>
-            </button>
+          <div className="font-bold mb-8">Character Position</div>
+          <div className="grid grid-cols-3 gap-8">
+            {([
+              ["left", "⬅ Left"],
+              ["center", "⬇ Center"],
+              ["right", "Right ➡"],
+            ] as const).map(([pos, label]) => (
+              <button
+                key={pos}
+                onClick={() => update({ cornerPosition: pos })}
+                className={`p-10 rounded-8 border-2 text-center transition-all text-sm font-bold ${
+                  (config.cornerPosition ?? "right") === pos
+                    ? "border-primary bg-primary/10"
+                    : "border-surface3 bg-surface3 hover:border-primary/50"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-          <div className="text-xs text-text-primary/60 mt-4">
-            Which corner the character docks to while screen share / gaming mode is active.
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-16 mt-12">
+            <Slide label="Box width" value={config.boxWidth} min={160} max={900} step={10}
+              fmt={(v) => `${v}px`} onChange={(v) => update({ boxWidth: v })} />
+            <Slide label="Box height" value={config.boxHeightPct} min={30} max={100} step={1}
+              fmt={(v) => `${v}%`} onChange={(v) => update({ boxHeightPct: v })} />
+            <Slide label="Distance from side" value={config.offsetX} min={0} max={600} step={4}
+              fmt={(v) => `${v}px`} onChange={(v) => update({ offsetX: v })}
+              disabled={config.cornerPosition === "center"} />
+            <Slide label="Distance from bottom" value={config.offsetY} min={0} max={400} step={4}
+              fmt={(v) => `${v}px`} onChange={(v) => update({ offsetY: v })} />
+            <Slide label="Zoom" value={config.zoom} min={0.5} max={2} step={0.05}
+              fmt={(v) => `×${v.toFixed(2)}`} onChange={(v) => update({ zoom: v })} />
+            <Slide label="Camera height" value={config.shiftY} min={-0.5} max={0.5} step={0.02}
+              fmt={(v) => `${v > 0 ? "+" : ""}${v.toFixed(2)} m`} onChange={(v) => update({ shiftY: v })} />
+          </div>
+          <div className="flex items-center justify-between mt-4">
+            <div className="text-xs text-text-primary/60">
+              Where the character docks while screen share / gaming mode is active, and how it is framed.
+            </div>
+            <button
+              className="text-xs font-bold underline whitespace-nowrap ml-8"
+              onClick={() => update({
+                boxWidth: DEFAULT_SCREEN_SHARE_CONFIG.boxWidth,
+                boxHeightPct: DEFAULT_SCREEN_SHARE_CONFIG.boxHeightPct,
+                offsetX: DEFAULT_SCREEN_SHARE_CONFIG.offsetX,
+                offsetY: DEFAULT_SCREEN_SHARE_CONFIG.offsetY,
+                zoom: 1,
+                shiftY: 0,
+              })}
+            >
+              Reset layout
+            </button>
           </div>
         </div>
 
@@ -149,6 +196,26 @@ export const ScreenShareSettings = ({
               </a>
             </div>
           </div>
+        )}
+
+        {config.mode === "chrome" && (
+          <label className="flex items-start gap-8 cursor-pointer mb-16">
+            <input
+              type="checkbox"
+              checked={!!config.shareAudio}
+              disabled={config.active}
+              onChange={(e) => update({ shareAudio: e.target.checked })}
+              className="w-16 h-16 accent-primary mt-2"
+            />
+            <span className="text-sm">
+              <b>Share audio too</b> (game / tab sound)
+              <span className="block text-xs text-text-primary/60">
+                Tick &quot;Share audio&quot; in the browser picker as well. It plays through this page so it
+                ends up in a tab-capture stream. Don&apos;t use it when sharing this same tab (echo).
+                Chrome/Edge can share tab and system audio; Firefox shares video only.
+              </span>
+            </span>
+          </label>
         )}
 
         <div className="flex gap-8">

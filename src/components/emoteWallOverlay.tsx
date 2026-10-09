@@ -44,8 +44,10 @@ const FallingEmote = ({ drop, onDone }: { drop: EmoteDrop; onDone: (id: string) 
       }
 
       if (elRef.current) {
-        elRef.current.style.transform =
-          `translate(-50%, -50%) translate(${x}vw, ${y}vh) rotate(${rotation}deg)`;
+        // Positioned in % of the stage (not vw/vh) so it follows a fixed-size stage.
+        elRef.current.style.left = `${x}%`;
+        elRef.current.style.top = `${y}%`;
+        elRef.current.style.transform = `translate(-50%, -50%) rotate(${rotation}deg)`;
       }
 
       const elapsed = now - startedAt;
@@ -65,8 +67,8 @@ const FallingEmote = ({ drop, onDone }: { drop: EmoteDrop; onDone: (id: string) 
   return (
     <div
       ref={elRef}
-      className="fixed top-0 left-0 pointer-events-none select-none"
-      style={{ willChange: "transform", fontSize: "36px", lineHeight: 1, zIndex: 45 }}
+      className="absolute pointer-events-none select-none"
+      style={{ willChange: "transform, left, top", fontSize: "36px", lineHeight: 1, zIndex: 45 }}
     >
       {drop.isImage ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -86,10 +88,10 @@ export const EmoteWallOverlay = () => {
   }, []);
 
   return (
-    <>
+    <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 45 }}>
       {drops.map((drop) => (
         <FallingEmote key={drop.id} drop={drop} onDone={(id) => emoteWallQueue.remove(id)} />
       ))}
-    </>
+    </div>
   );
 };

@@ -5,6 +5,8 @@ type Props = {
   vdoninjaUrl?: string;
   mode: "chrome" | "vdoninja";
   active: boolean;
+  /** Play the shared surface's audio (so tab-capture / the stream hears it). */
+  playAudio?: boolean;
 };
 
 // ── Fixed-quality VDO.Ninja URL builder ───────────────────────────────────────
@@ -42,7 +44,7 @@ function buildFixedVdoUrl(baseUrl: string): string {
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
-export const ScreenShareBackground = ({ stream, vdoninjaUrl, mode, active }: Props) => {
+export const ScreenShareBackground = ({ stream, vdoninjaUrl, mode, active, playAudio = false }: Props) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [fixedUrl, setFixedUrl] = useState("");
 
@@ -68,7 +70,7 @@ export const ScreenShareBackground = ({ stream, vdoninjaUrl, mode, active }: Pro
   // ── VDO.Ninja mode ────────────────────────────────────────────────────────
   if (mode === "vdoninja" && (fixedUrl || vdoninjaUrl)) {
     return (
-      <div className="absolute top-0 left-0 w-screen h-[100svh] -z-20">
+      <div className="absolute top-0 left-0 w-full h-full -z-20">
         <iframe
           src={fixedUrl || vdoninjaUrl}
           className="w-full h-full border-0"
@@ -94,11 +96,11 @@ export const ScreenShareBackground = ({ stream, vdoninjaUrl, mode, active }: Pro
   // ── Chrome screen share mode ───────────────────────────────────────────────
   if (mode === "chrome" && stream) {
     return (
-      <div className="absolute top-0 left-0 w-screen h-[100svh] -z-20 bg-black">
+      <div className="absolute top-0 left-0 w-full h-full -z-20 bg-black">
         <video
           ref={videoRef}
           autoPlay
-          muted
+          muted={!playAudio}
           playsInline
           className="w-full h-full object-cover"
         />

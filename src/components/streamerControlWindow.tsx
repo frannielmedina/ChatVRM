@@ -9,6 +9,9 @@ import { BackgroundSettings } from "./backgroundSettings";
 import { VisionSettings } from "./visionSettings";
 import { GraphicsSettings } from "./graphicsSettings";
 import { StreamerSettings } from "./streamerSettings";
+import { ScreenShareSettings } from "./screenShareSettings";
+import { StageSizeSettings } from "./stageSizeSettings";
+import { StageSizeId } from "@/features/stage/stageConfig";
 import { Message } from "@/features/messages/messages";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
@@ -60,6 +63,11 @@ export type StreamerControlProps = {
   visionError: string | null;
   onVisionCaptureNow: () => void;
   screenShareConfig: ScreenShareConfig;
+  onChangeScreenShareConfig: (c: ScreenShareConfig) => void;
+  onScreenShareStart: () => void;
+  onScreenShareStop: () => void;
+  stageSize: StageSizeId;
+  onChangeStageSize: (size: StageSizeId) => void;
 
   graphicsConfig: GraphicsConfig;
   onChangeGraphicsConfig: (c: GraphicsConfig) => void;
@@ -72,10 +80,11 @@ export type StreamerControlProps = {
   onStopBroadcast: () => void;
 };
 
-type TabId = "chat" | "twitch" | "tts" | "llm" | "caption" | "bg" | "vision" | "3d" | "stream";
+type TabId = "chat" | "screen" | "twitch" | "tts" | "llm" | "caption" | "bg" | "vision" | "3d" | "stream";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "💬" },
+  { id: "screen", label: "Screen", icon: "🖥️" },
   { id: "twitch", label: "Twitch", icon: "🟣" },
   { id: "tts", label: "TTS", icon: "🔊" },
   { id: "llm", label: "LLM", icon: "🧠" },
@@ -132,6 +141,17 @@ const Content = (p: StreamerControlProps) => {
           />
         ) : (
           <div className="h-full overflow-y-auto px-16 pb-32">
+            {tab === "screen" && (
+              <>
+                <StageSizeSettings value={p.stageSize} onChange={p.onChangeStageSize} />
+                <ScreenShareSettings
+                  config={p.screenShareConfig}
+                  onChangeConfig={p.onChangeScreenShareConfig}
+                  onStart={p.onScreenShareStart}
+                  onStop={p.onScreenShareStop}
+                />
+              </>
+            )}
             {tab === "twitch" && (
               <TwitchSettings
                 hideStreamerMode

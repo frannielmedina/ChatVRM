@@ -47,6 +47,13 @@ export const TwitchSettings = ({
           >
             Open Streamer Window
           </button>
+          <button
+            onClick={() => openStreamerWindow(true)}
+            className="ml-8 px-24 py-8 border-2 border-[#9146FF] text-[#9146FF] hover:bg-[#9146FF]/10 font-bold rounded-oval"
+            title="Opens as a separate window the page can resize (needed for the 'resize window' buttons)"
+          >
+            Open as window
+          </button>
         </div>
       </div>
     )}

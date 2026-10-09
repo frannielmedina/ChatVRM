@@ -1,16 +1,19 @@
+import { STAGE_SIZES, StageSizeId } from "@/features/stage/stageConfig";
 import { BroadcastState } from "@/features/streamer/rtmpBroadcaster";
 
 type Props = {
   visible: boolean;
   broadcast: BroadcastState;
   fps: number;
+  stageSize: StageSizeId;
+  onChangeStageSize: (s: StageSizeId) => void;
   onGoLive: () => void;
   onStop: () => void;
 };
 
 // Floating bar in the streamer window. Auto-hides with the rest of the UI,
 // so it doesn't appear in the captured stream unless you move the mouse.
-export const StreamerToolbar = ({ visible, broadcast, fps, onGoLive, onStop }: Props) => {
+export const StreamerToolbar = ({ visible, broadcast, fps, stageSize, onChangeStageSize, onGoLive, onStop }: Props) => {
   const live = broadcast.status === "live";
   const busy = broadcast.status === "capturing" || broadcast.status === "connecting";
   return (
@@ -20,6 +23,17 @@ export const StreamerToolbar = ({ visible, broadcast, fps, onGoLive, onStop }: P
       }`}
     >
       <div className="px-12 py-6 rounded-oval bg-black/70 text-white text-xs font-bold">{fps} FPS</div>
+      <select
+        value={stageSize}
+        disabled={live}
+        onChange={(e) => onChangeStageSize(e.target.value as StageSizeId)}
+        className="px-8 py-6 rounded-oval bg-black/70 text-white text-xs font-bold"
+        title="Stage size"
+      >
+        {STAGE_SIZES.map((z) => (
+          <option key={z.id} value={z.id}>{z.label}</option>
+        ))}
+      </select>
       {live ? (
         <button onClick={onStop} className="px-16 py-6 rounded-oval bg-red-500 text-white text-sm font-bold animate-pulse">
           ■ End stream · {broadcast.stats.kbps} kbps

@@ -1,45 +1,46 @@
 import { useEffect } from "react";
 import { BackgroundConfig } from "@/features/background/backgroundConfig";
 import { buildUrl } from "@/utils/buildUrl";
+import { STAGE_ELEMENT_ID } from "@/features/stage/stageConfig";
 
 type Props = {
   config: BackgroundConfig;
+  /** When the stage is a fixed size, the background paints the stage (not the whole window). */
+  stageFixed?: boolean;
 };
 
-export const BackgroundRenderer = ({ config }: Props) => {
-  // Apply body background based on config
+export const BackgroundRenderer = ({ config, stageFixed = false }: Props) => {
   useEffect(() => {
     const body = document.body;
+    const stage = document.getElementById(STAGE_ELEMENT_ID);
+    const target: HTMLElement = stageFixed && stage ? stage : body;
+
+    // The other surface gets neutral styling.
+    const other: HTMLElement | null = target === body ? stage : body;
+    if (other) {
+      other.style.backgroundImage = "none";
+      other.style.backgroundColor = other === body ? "#0b0b0f" : "transparent";
+    }
+    if (target === stage) {
+      target.style.backgroundSize = "cover";
+      target.style.backgroundPosition = "top center";
+      target.style.backgroundRepeat = "no-repeat";
+    }
 
     if (config.type === "greenscreen") {
-      body.style.backgroundImage = "none";
-      body.style.backgroundColor = "#00b140";
-      return;
+      target.style.backgroundImage = "none";
+      target.style.backgroundColor = "#00b140";
+    } else if (config.type === "none") {
+      target.style.backgroundImage = "none";
+      target.style.backgroundColor = "transparent";
+    } else if (config.type === "color") {
+      target.style.backgroundImage = "none";
+      target.style.backgroundColor = config.color;
+    } else if (config.type === "image") {
+      target.style.backgroundImage = `url(${config.imageUrl || buildUrl("/bg-c.png")})`;
+      target.style.backgroundColor = "";
     }
-
-    if (config.type === "none") {
-      body.style.backgroundImage = "none";
-      body.style.backgroundColor = "transparent";
-      return;
-    }
-
-    if (config.type === "color") {
-      body.style.backgroundImage = "none";
-      body.style.backgroundColor = config.color;
-      return;
-    }
-
-    if (config.type === "image") {
-      if (config.imageUrl) {
-        body.style.backgroundImage = `url(${config.imageUrl})`;
-        body.style.backgroundColor = "";
-      } else {
-        body.style.backgroundImage = `url(${buildUrl("/bg-c.png")})`;
-        body.style.backgroundColor = "";
-      }
-      return;
-    }
-  }, [config]);
+  }, [config, stageFixed]);
 
   return null;
 };

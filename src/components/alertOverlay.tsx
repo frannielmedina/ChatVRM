@@ -174,8 +174,8 @@ export const AlertOverlay = () => {
 
   return (
     <div
-      className="fixed top-16 right-16 z-40 flex flex-col items-end pointer-events-none"
-      style={{ maxHeight: "calc(100vh - 32px)" }}
+      className="absolute top-16 right-16 z-40 flex flex-col items-end pointer-events-none"
+      style={{ maxHeight: "calc(100% - 32px)" }}
     >
       {poll && <PollPredictionCard state={poll} />}
       {alerts.map((alert) => (

@@ -13,6 +13,8 @@ import { VisionSettings } from "./visionSettings";
 import { DiscordSettings } from "./discordSettings";
 import { SettingsPorter } from "./settingsPorter";
 import { GraphicsSettings } from "./graphicsSettings";
+import { StageSizeSettings } from "./stageSizeSettings";
+import { StageSizeId } from "@/features/stage/stageConfig";
 import { GraphicsConfig } from "@/features/graphics/graphicsConfig";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { TwitchConfig } from "@/features/twitch/twitchClient";
@@ -64,6 +66,8 @@ type Props = {
   onTestBits: () => void;
   graphicsConfig: GraphicsConfig;
   onChangeGraphicsConfig: (config: GraphicsConfig) => void;
+  stageSize: StageSizeId;
+  onChangeStageSize: (size: StageSizeId) => void;
   isMobile: boolean;
   onClickClose: () => void;
   onSaveAndClose: () => void;
@@ -234,6 +238,8 @@ export const SettingsContent = (props: Props) => {
     onLoadSettings,
     graphicsConfig,
     onChangeGraphicsConfig,
+    stageSize,
+    onChangeStageSize,
     isMobile,
   } = props;
 
@@ -489,6 +495,7 @@ export const SettingsContent = (props: Props) => {
           {activeTab === "ui" && (
             <>
               <SectionTitle>UI Color &amp; Background</SectionTitle>
+              <StageSizeSettings value={stageSize} onChange={onChangeStageSize} />
               <BackgroundSettings
                 config={backgroundConfig}
                 onChangeConfig={onChangeBackgroundConfig}
@@ -741,6 +748,7 @@ export const SettingsContent = (props: Props) => {
 
           {activeTab === "screenShare" && (
             <>
+              <StageSizeSettings value={stageSize} onChange={onChangeStageSize} />
               <ScreenShareSettings
                 config={screenShareConfig}
                 onChangeConfig={onChangeScreenShareConfig}
