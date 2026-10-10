@@ -1,0 +1,19 @@
+{
+  "name": "chatvrm-rtmp-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local WebSocket → ffmpeg → RTMP relay used by ChatVRM's Streamer Mode",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "ffmpeg-static": "^5.2.0"
+  }
+}
