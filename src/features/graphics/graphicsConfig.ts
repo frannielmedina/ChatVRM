@@ -59,6 +59,8 @@ export const MIN_RESOLUTION_SCALE = 0.4;
 export type HardwareInfo = {
   tier: HardwareTier;
   gpu: string;
+  /** false when the browser hides the GPU name (Firefox, privacy modes) — we can only guess then. */
+  gpuKnown: boolean;
   cores: number;
   memoryGB: number | null;
   reason: string;
@@ -121,7 +123,15 @@ export function detectHardware(): HardwareInfo {
   }
   if (memoryGB !== null && memoryGB <= 2) tier = "low";
 
-  cachedHardware = { tier, gpu, cores, memoryGB, reason };
+  // A masked GPU name (Firefox / resistFingerprinting) tells us nothing, so a CPU-only guess of
+  // "low" would needlessly blur the picture. Assume at least medium; the live scaler corrects it.
+  const gpuKnown = gpu !== "unknown" && !/^(mozilla|webkit|generic|)$/i.test(gpu.trim());
+  if (!gpuKnown && tier === "low") {
+    tier = "medium";
+    reason = "GPU name hidden by the browser (e.g. Firefox) — assuming medium, quality adjusts live";
+  }
+
+  cachedHardware = { tier, gpu, gpuKnown, cores, memoryGB, reason };
   return cachedHardware;
 }
 
