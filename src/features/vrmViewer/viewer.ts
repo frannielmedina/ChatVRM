@@ -223,11 +223,16 @@ export class Viewer {
       this._autoHighSamples = 0;
     }
     if (this._gfx.autoQuality) {
-      const tierProfile = autoProfileFor(detectHardware().tier);
-      // Start a fresh auto session at the tier's recommended resolution.
+      const hw = detectHardware();
+      const tierProfile = autoProfileFor(hw.tier);
+      // Start a fresh auto session. The tier only picks the STARTING point (and only when we
+      // really know the GPU); the ceiling is always full resolution, so if there's headroom the
+      // scaler climbs back up to sharp instead of staying blurry at the tier's guess.
       if (!prevAuto || this._autoScale === 1) {
-        this._autoScale = Math.min(1, Math.max(MIN_RESOLUTION_SCALE, tierProfile.resolutionScale));
-        this._autoCeiling = Math.min(1, Math.max(this._autoScale, tierProfile.resolutionScale));
+        this._autoScale = hw.gpuKnown
+          ? Math.min(1, Math.max(MIN_RESOLUTION_SCALE, tierProfile.resolutionScale))
+          : 1;
+        this._autoCeiling = 1;
       }
     } else {
       this._autoAdjusted = false;
@@ -243,7 +248,8 @@ export class Viewer {
   private targetFps(): number {
     const user = this._gfx.fpsLimit;
     if (!this._gfx.autoQuality) return user;
-    const tierCap = detectHardware().tier === "low" ? 30 : 0;
+    const hw = detectHardware();
+    const tierCap = hw.tier === "low" && hw.gpuKnown ? 30 : 0;
     if (tierCap === 0) return user;
     return user > 0 ? Math.min(user, tierCap) : tierCap;
   }
@@ -299,14 +305,14 @@ export class Viewer {
       return;
     }
 
-    // Comfortable for 10 seconds → creep back up, but never past the learned ceiling.
+    // Comfortable for 6 seconds → creep back up, but never past the learned ceiling.
     // The ceiling relaxes after 60s so a temporary spike (loading, another app) doesn't pin quality low forever.
     if (now - this._autoCeilingSetAt > 60000) {
       this._autoCeiling = Math.min(1, this._autoCeiling + 0.1);
       this._autoCeilingSetAt = now;
     }
-    if (this._autoHighSamples >= 10 && this._autoScale < this._autoCeiling) {
-      this._autoScale = Math.min(this._autoCeiling, this._autoScale + 0.05);
+    if (this._autoHighSamples >= 6 && this._autoScale < this._autoCeiling) {
+      this._autoScale = Math.min(this._autoCeiling, this._autoScale + 0.1);
       this._autoHighSamples = 0;
       this._autoAdjusted = true;
       this.applyPixelRatio();
