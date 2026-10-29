@@ -44,3 +44,71 @@ export async function loadCustomVrmUrl(): Promise<string | null> {
     return null;
   }
 }
+
+// ── Per-character models ──────────────────────────────────────────────────────
+// Each character card keeps its own VRM in the same IndexedDB store, under
+// "vrm:<cardId>". Cards that use the bundled default model store nothing.
+const cardKey = (id: string) => `vrm:${id}`;
+
+async function idbGet(key: string): Promise<Blob | undefined> {
+  const db = await openDb();
+  const blob = await new Promise<Blob | undefined>((resolve, reject) => {
+    const req = db.transaction(STORE, "readonly").objectStore(STORE).get(key);
+    req.onsuccess = () => resolve(req.result as Blob | undefined);
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  return blob;
+}
+
+export async function saveCardVrm(cardId: string, file: Blob): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(file, cardKey(cardId));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch (e) {
+    console.warn("[vrmStorage] couldn't save card VRM", e);
+  }
+}
+
+export async function loadCardVrmBlob(cardId: string): Promise<Blob | null> {
+  try {
+    return (await idbGet(cardKey(cardId))) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadCardVrmUrl(cardId: string): Promise<string | null> {
+  const blob = await loadCardVrmBlob(cardId);
+  return blob ? URL.createObjectURL(blob) : null;
+}
+
+/** The pre-character-cards single model, used once to migrate into the first card. */
+export async function loadLegacyVrmBlob(): Promise<Blob | null> {
+  try {
+    return (await idbGet(KEY)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteCardVrm(cardId: string): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(cardKey(cardId));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch (e) {
+    console.warn("[vrmStorage] couldn't delete card VRM", e);
+  }
+}
