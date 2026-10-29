@@ -3,18 +3,23 @@ import { TTSConfig, DEFAULT_TTS_CONFIG } from "@/features/tts/ttsConfig";
 import { BackgroundConfig, DEFAULT_BACKGROUND_CONFIG } from "@/features/background/backgroundConfig";
 import { KoeiroParam, DEFAULT_PARAM } from "@/features/constants/koeiroParam";
 import { SYSTEM_PROMPT } from "@/features/constants/systemPromptConstants";
+import type { LibrarySnapshot } from "@/features/characters/useCharacters";
+import { normalizeCard } from "@/features/characters/characterCard";
 
-export const SETTINGS_FILE_VERSION = "1.0";
+export const SETTINGS_FILE_VERSION = "2.0";
 
 /** Everything that gets saved / loaded */
 export type SettingsSnapshot = {
   _version: string;
   _savedAt: string;
+  /** Active character's prompt — kept so files stay readable by older versions. */
   systemPrompt: string;
   aiConfig: AIProviderConfig;
   ttsConfig: TTSConfig;
   koeiroParam: KoeiroParam;
   backgroundConfig: Omit<BackgroundConfig, "imageUrl">; // skip large base64 blobs by default
+  /** All character cards with knowledge base, long-term memory (and optionally VRM models). */
+  characters?: LibrarySnapshot;
 };
 
 export type LoadSettingsResult =
@@ -24,6 +29,7 @@ export type LoadSettingsResult =
 /** Build a snapshot from current app state */
 export function buildSnapshot(params: {
   systemPrompt: string;
+  characters?: LibrarySnapshot;
   aiConfig: AIProviderConfig;
   ttsConfig: TTSConfig;
   koeiroParam: KoeiroParam;
@@ -36,6 +42,7 @@ export function buildSnapshot(params: {
     _version: SETTINGS_FILE_VERSION,
     _savedAt: new Date().toISOString(),
     systemPrompt: params.systemPrompt,
+    characters: params.characters,
     aiConfig: params.aiConfig,
     ttsConfig: params.ttsConfig,
     koeiroParam: params.koeiroParam,
@@ -78,6 +85,16 @@ export function parseSettingsFile(jsonText: string): LoadSettingsResult {
     _savedAt: (obj._savedAt as string) ?? "",
     systemPrompt:
       typeof obj.systemPrompt === "string" ? obj.systemPrompt : SYSTEM_PROMPT,
+    characters:
+      obj.characters &&
+      typeof obj.characters === "object" &&
+      Array.isArray((obj.characters as any).cards) &&
+      (obj.characters as any).cards.length > 0
+        ? ({
+            ...(obj.characters as any),
+            cards: (obj.characters as any).cards.map(normalizeCard),
+          } as LibrarySnapshot)
+        : undefined,
     aiConfig:
       obj.aiConfig && typeof obj.aiConfig === "object"
         ? { ...DEFAULT_AI_CONFIG, ...(obj.aiConfig as Partial<AIProviderConfig>) }
