@@ -85,7 +85,9 @@ import { openControlWindow } from "@/components/popoutPortal";
 import { StreamerControlWindow } from "@/components/streamerControlWindow";
 import { StreamerToolbar } from "@/components/streamerToolbar";
 import { StandbyScreen } from "@/components/standbyScreen";
-import { saveCustomVrm, loadCustomVrmUrl } from "@/features/vrmViewer/vrmStorage";
+import { useCharacters } from "@/features/characters/useCharacters";
+import { ensureEmotionTag } from "@/features/characters/emotionPrompt";
+import { ThemeId, DEFAULT_THEME, loadTheme, applyTheme } from "@/features/theme/theme";
 import { Stage } from "@/components/stage";
 import { StageSizeId, DEFAULT_STAGE_SIZE, parseStageSize, STAGE_ELEMENT_ID } from "@/features/stage/stageConfig";
 import { pollPredictionStore } from "@/features/pollPrediction/pollPredictionStore";
@@ -93,9 +95,6 @@ import { parseSlashCommand, extractAiDirective } from "@/features/pollPrediction
 import { createTwitchPoll, createTwitchPrediction } from "@/features/twitch/twitchPollsApi";
 import { DiscordMessage, DiscordVoiceEvent } from "@/features/discord/discordConfig";
 
-// VRM model localStorage key
-const VRM_URL_KEY = "chatVRM_lastVrmUrl";
-const VRM_IS_DEFAULT_KEY = "chatVRM_isDefaultVrm";
 
 // ── CJK detection ─────────────────────────────────────────────────────────────
 function isCJKHeavy(text: string): boolean {
@@ -116,7 +115,7 @@ function Home() {
   const uiVisible = useAutoHide(3000);
 
   const [isLoading, setIsLoading] = useState(true);
-  const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
+  const [theme, setTheme] = useState<ThemeId>(DEFAULT_THEME);
   const [fallbackMessage, setFallbackMessage] = useState("");
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(DEFAULT_AI_CONFIG);
   const [koeiroParam, setKoeiroParam] = useState<KoeiroParam>(DEFAULT_PARAM);
@@ -197,7 +196,6 @@ function Home() {
     if (saved) {
       try {
         const params = JSON.parse(saved);
-        setSystemPrompt(params.systemPrompt ?? SYSTEM_PROMPT);
         setFallbackMessage(params.fallbackMessage ?? "");
         setKoeiroParam(params.koeiroParam ?? DEFAULT_PARAM);
         setChatLog(params.chatLog ?? []);
@@ -235,7 +233,6 @@ function Home() {
       window.localStorage.setItem(
         "chatVRMParams",
         JSON.stringify({
-          systemPrompt,
           fallbackMessage,
           koeiroParam,
           chatLog,
@@ -255,7 +252,7 @@ function Home() {
         })
       )
     );
-  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
+  }, [fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
 
   // ── VRM model persistence ──────────────────────────────────────────────────
   const [viewerReady, setViewerReady] = useState(false);
@@ -270,36 +267,34 @@ function Home() {
     return () => clearInterval(check);
   }, [viewer]);
 
+  // ── Theme (dark by default) ────────────────────────────────────────────────
   useEffect(() => {
-    if (!viewerReady || isLoading) return;
+    setTheme(loadTheme());
+  }, []);
+  const handleChangeTheme = useCallback((t: ThemeId) => {
+    setTheme(t);
+    applyTheme(t);
+  }, []);
 
-    const savedUrl = localStorage.getItem(VRM_URL_KEY);
-    const isDefault = localStorage.getItem(VRM_IS_DEFAULT_KEY);
-
-    if (savedUrl && isDefault !== "true") {
-      // Prefer the copy in IndexedDB (works in the streamer tab / after a reload);
-      // fall back to the saved URL for models stored before this existed.
-      loadCustomVrmUrl().then((url) => viewer.loadVrm(url ?? savedUrl));
-    } else {
-      const defaultUrl = buildUrl("/AvatarSample_B.vrm");
-      viewer.loadVrm(defaultUrl);
-      localStorage.setItem(VRM_URL_KEY, defaultUrl);
-      localStorage.setItem(VRM_IS_DEFAULT_KEY, "true");
-    }
-  }, [viewerReady, isLoading, viewer]);
-
-  const handleVrmFileLoad = useCallback((url: string, file?: File) => {
-    viewer.loadVrm(url);
-    if (file) saveCustomVrm(file);
-    localStorage.setItem(VRM_URL_KEY, url);
-    localStorage.setItem(VRM_IS_DEFAULT_KEY, "false");
-  }, [viewer]);
+  // ── Character cards (prompt, LLM, TTS, VRM, knowledge, memory) ─────────────
+  const characters = useCharacters({
+    viewer,
+    vrmEnabled: viewerReady && !isLoading,
+    aiConfig,
+    ttsConfig,
+    koeiroParam,
+    setAiConfig,
+    setTtsConfig,
+    setKoeiroParam,
+    chatLog,
+  });
+  const systemPrompt = characters.activeCard?.systemPrompt ?? SYSTEM_PROMPT;
+  const { reloadActiveVrm, loadLibrary, updateCard, buildPrompt, activeCard } = characters;
 
   const saveSettingsNow = useCallback(() => {
     window.localStorage.setItem(
       "chatVRMParams",
       JSON.stringify({
-        systemPrompt,
         fallbackMessage,
         koeiroParam,
         chatLog,
@@ -318,7 +313,7 @@ function Home() {
         autonomousConfig,
       })
     );
-  }, [systemPrompt, fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
+  }, [fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
 
   // Apply 3D settings (FPS cap, resolution, lights, auto quality) to the viewer.
   useEffect(() => {
@@ -332,16 +327,16 @@ function Home() {
     twitchProcessingRef.current = false;
     setActiveTwitchMessage(null);
     setTwitchQueueCount(0);
-    const savedUrl = localStorage.getItem(VRM_URL_KEY);
-    if (savedUrl) {
-      viewer.loadVrm(savedUrl);
-    } else {
-      viewer.loadVrm(buildUrl("/AvatarSample_B.vrm"));
-    }
-  }, [viewer]);
+    reloadActiveVrm();
+  }, [reloadActiveVrm]);
 
   const handleLoadSettings = useCallback((snapshot: SettingsSnapshot) => {
-    setSystemPrompt(snapshot.systemPrompt);
+    if (snapshot.characters) {
+      loadLibrary(snapshot.characters);
+    } else if (activeCard) {
+      // Older settings file: its prompt becomes the active character's prompt.
+      updateCard(activeCard.id, { systemPrompt: snapshot.systemPrompt });
+    }
     setAiConfig({ ...DEFAULT_AI_CONFIG, ...snapshot.aiConfig });
     setTtsConfig({ ...DEFAULT_TTS_CONFIG, ...snapshot.ttsConfig });
     setKoeiroParam({ ...DEFAULT_PARAM, ...snapshot.koeiroParam });
@@ -350,7 +345,7 @@ function Home() {
       ...snapshot.backgroundConfig,
       imageUrl: "",
     });
-  }, []);
+  }, [loadLibrary, updateCard, activeCard]);
 
   const handleChangeChatLog = useCallback(
     (targetIndex: number, text: string) => {
@@ -395,7 +390,7 @@ function Home() {
       setChatLog(messageLog);
 
       const allMessages: Message[] = [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: buildPrompt(text) },
         ...messageLog,
       ];
 
@@ -469,7 +464,8 @@ function Home() {
         return;
       }
 
-      const aiTalks = textsToScreenplay([cleanedResponse], koeiroParam);
+      // If the model forgot its emotion tag, infer one so the avatar still reacts.
+      const aiTalks = textsToScreenplay([ensureEmotionTag(cleanedResponse)], koeiroParam);
 
       if (aiTalks.length === 0) {
         setChatProcessing(false);
@@ -496,7 +492,7 @@ function Home() {
         );
       });
     },
-    [systemPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam, twitchConfig]
+    [buildPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam, twitchConfig]
   );
 
   useEffect(() => {
@@ -1118,7 +1114,9 @@ function Home() {
 
       <Menu
         aiConfig={aiConfig}
-        systemPrompt={systemPrompt}
+        characters={characters}
+        theme={theme}
+        onChangeTheme={handleChangeTheme}
         chatLog={chatLog}
         ttsConfig={ttsConfig}
         koeiroParam={koeiroParam}
@@ -1153,7 +1151,6 @@ function Home() {
         onTestBits={handleTestBits}
         uiVisible={uiVisible}
         onChangeAiConfig={setAiConfig}
-        onChangeSystemPrompt={setSystemPrompt}
         onChangeChatLog={handleChangeChatLog}
         fallbackMessage={fallbackMessage}
         onChangeFallbackMessage={setFallbackMessage}
@@ -1161,7 +1158,6 @@ function Home() {
         onChangeTTSConfig={handleChangeTtsConfig}
         onChangeKoeiroParam={(x, y) => setKoeiroParam({ speakerX: x, speakerY: y })}
         handleClickResetChatLog={() => setChatLog([])}
-        handleClickResetSystemPrompt={() => setSystemPrompt(SYSTEM_PROMPT)}
         onChangeTwitchConfig={setTwitchConfig}
         onTwitchConnect={handleTwitchConnect}
         onTwitchDisconnect={handleTwitchDisconnect}
@@ -1177,7 +1173,6 @@ function Home() {
         onDiscordDisconnect={handleDiscordDisconnect}
         onLoadSettings={handleLoadSettings}
         onSaveSettings={saveSettingsNow}
-        onVrmFileLoad={handleVrmFileLoad}
         graphicsConfig={graphicsConfig}
         onChangeGraphicsConfig={setGraphicsConfig}
         onOpenSettings={isStreamer ? handleOpenControlWindow : undefined}
