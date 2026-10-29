@@ -12,6 +12,9 @@ import { CaptionSettings } from "./captionSettings";
 import { VisionSettings } from "./visionSettings";
 import { DiscordSettings } from "./discordSettings";
 import { SettingsPorter } from "./settingsPorter";
+import { CharacterCards, CharacterQuickSwitch } from "./characterCards";
+import { CharactersApi } from "@/features/characters/useCharacters";
+import { ThemeId } from "@/features/theme/theme";
 import { GraphicsSettings } from "./graphicsSettings";
 import { StageSizeSettings } from "./stageSizeSettings";
 import { StageSizeId } from "@/features/stage/stageConfig";
@@ -33,7 +36,9 @@ import { AutonomousConfig } from "@/features/autonomous/autonomousConfig";
 
 type Props = {
   aiConfig: AIProviderConfig;
-  systemPrompt: string;
+  characters: CharactersApi;
+  theme: ThemeId;
+  onChangeTheme: (theme: ThemeId) => void;
   chatLog: Message[];
   ttsConfig: TTSConfig;
   koeiroParam: KoeiroParam;
@@ -72,11 +77,8 @@ type Props = {
   onClickClose: () => void;
   onSaveAndClose: () => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
-  onChangeSystemPrompt: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onChangeChatLog: (index: number, text: string) => void;
-  onClickOpenVrmFile: () => void;
   onClickResetChatLog: () => void;
-  onClickResetSystemPrompt: () => void;
   fallbackMessage: string;
   onChangeFallbackMessage: (message: string) => void;
   onClickResetFallbackMessage: () => void;
@@ -143,12 +145,12 @@ const SaveConfirmDialog = ({
 // add a case in the render switch below.
 type TabId =
   | "general"
-  | "vrm"
+  | "characters"
+  | "history"
   | "llm"
   | "ui"
   | "tts"
   | "discord"
-  | "systemPrompt"
   | "twitch"
   | "vision"
   | "graphics"
@@ -156,12 +158,12 @@ type TabId =
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "⚙️" },
-  { id: "vrm", label: "VRM", icon: "🧍" },
+  { id: "characters", label: "Character Cards", icon: "🎭" },
+  { id: "history", label: "Chat History", icon: "💬" },
   { id: "llm", label: "LLM", icon: "🧠" },
   { id: "ui", label: "UI & Background", icon: "🎨" },
   { id: "tts", label: "TTS", icon: "🔊" },
   { id: "discord", label: "Discord", icon: "💬" },
-  { id: "systemPrompt", label: "System Prompt", icon: "📝" },
   { id: "twitch", label: "Twitch", icon: "🟣" },
   { id: "vision", label: "Vision", icon: "👁️" },
   { id: "graphics", label: "3D", icon: "🎮" },
@@ -179,7 +181,9 @@ export const SettingsContent = (props: Props) => {
   const {
     aiConfig,
     chatLog,
-    systemPrompt,
+    characters,
+    theme,
+    onChangeTheme,
     ttsConfig,
     koeiroParam,
     twitchConfig,
@@ -211,12 +215,9 @@ export const SettingsContent = (props: Props) => {
     onTestBits,
     onClickClose,
     onSaveAndClose,
-    onChangeSystemPrompt,
     onChangeAiConfig,
     onChangeChatLog,
-    onClickOpenVrmFile,
     onClickResetChatLog,
-    onClickResetSystemPrompt,
     fallbackMessage,
     onChangeFallbackMessage,
     onClickResetFallbackMessage,
@@ -337,7 +338,7 @@ export const SettingsContent = (props: Props) => {
                 Save your full configuration to a file, or load one you saved earlier.
               </div>
               <SettingsPorter
-                systemPrompt={systemPrompt}
+                characters={characters}
                 aiConfig={aiConfig}
                 ttsConfig={ttsConfig}
                 koeiroParam={koeiroParam}
@@ -439,47 +440,54 @@ export const SettingsContent = (props: Props) => {
                   </div>
                 </div>
               </div>
-
-
-              {chatLog.length > 0 && (
-                <div className="my-40">
-                  <div className="my-8">
-                    <div className="my-16 typography-20 font-bold">
-                      Conversation History
-                    </div>
-                    <TextButton onClick={onClickResetChatLog}>
-                      Clear History
-                    </TextButton>
-                  </div>
-                  <div className="my-8">
-                    {chatLog.map((value, index) => (
-                      <div
-                        key={index}
-                        className="my-8 grid grid-flow-col grid-cols-[min-content_1fr] gap-x-fixed"
-                      >
-                        <div className="w-[80px] py-8">
-                          {value.role === "assistant" ? "Character" : "You"}
-                        </div>
-                        <input
-                          className="bg-surface1 hover:bg-surface1-hover rounded-8 w-full px-16 py-8"
-                          type="text"
-                          value={value.content}
-                          onChange={(e) => onChangeChatLog(index, e.target.value)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </>
           )}
 
-          {activeTab === "vrm" && (
+          {activeTab === "characters" && (
             <>
-              <SectionTitle>VRM / Character Model</SectionTitle>
-              <div className="my-8">
-                <TextButton onClick={onClickOpenVrmFile}>Open VRM File</TextButton>
+              <SectionTitle>Character Cards</SectionTitle>
+              <CharacterCards
+                characters={characters}
+                onGoToTab={(tab) => setActiveTab(tab)}
+              />
+            </>
+          )}
+
+          {activeTab === "history" && (
+            <>
+              <SectionTitle>Chat History</SectionTitle>
+              <div className="mb-16 flex items-center gap-12">
+                <TextButton onClick={onClickResetChatLog} disabled={chatLog.length === 0}>
+                  Clear History
+                </TextButton>
+                <span className="text-sm text-text-primary/70">
+                  {chatLog.length} {chatLog.length === 1 ? "message" : "messages"}
+                </span>
               </div>
+              {chatLog.length === 0 ? (
+                <div className="text-sm text-text-primary/60">No conversation yet.</div>
+              ) : (
+                <div className="my-8">
+                  {chatLog.map((value, index) => (
+                    <div
+                      key={index}
+                      className="my-8 grid grid-flow-col grid-cols-[min-content_1fr] gap-x-fixed"
+                    >
+                      <div className="w-[80px] py-8">
+                        {value.role === "assistant"
+                          ? characters.activeCard?.name || "Character"
+                          : "You"}
+                      </div>
+                      <input
+                        className="bg-surface1 hover:bg-surface1-hover rounded-8 w-full px-16 py-8"
+                        type="text"
+                        value={value.content}
+                        onChange={(e) => onChangeChatLog(index, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
 
@@ -495,6 +503,24 @@ export const SettingsContent = (props: Props) => {
           {activeTab === "ui" && (
             <>
               <SectionTitle>UI Color &amp; Background</SectionTitle>
+              <div className="mb-24">
+                <div className="my-16 typography-20 font-bold">Theme</div>
+                <div className="flex gap-8">
+                  {(["dark", "light"] as ThemeId[]).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => onChangeTheme(t)}
+                      className={`px-16 py-8 rounded-oval font-bold text-sm border-2 ${
+                        theme === t
+                          ? "bg-primary text-white border-primary"
+                          : "bg-surface1 border-surface3 hover:bg-surface3"
+                      }`}
+                    >
+                      {t === "dark" ? "🌙 Dark" : "☀️ Light"}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <StageSizeSettings value={stageSize} onChange={onChangeStageSize} />
               <BackgroundSettings
                 config={backgroundConfig}
@@ -527,22 +553,6 @@ export const SettingsContent = (props: Props) => {
                 onChangeConfig={onChangeDiscordConfig}
                 onConnect={onDiscordConnect}
                 onDisconnect={onDiscordDisconnect}
-              />
-            </>
-          )}
-
-          {activeTab === "systemPrompt" && (
-            <>
-              <SectionTitle>System Prompt</SectionTitle>
-              <div className="my-8">
-                <TextButton onClick={onClickResetSystemPrompt}>
-                  Reset to Default
-                </TextButton>
-              </div>
-              <textarea
-                value={systemPrompt}
-                onChange={onChangeSystemPrompt}
-                className="px-16 py-8 bg-surface1 hover:bg-surface1-hover h-[400px] rounded-8 w-full mt-8"
               />
             </>
           )}
@@ -748,6 +758,7 @@ export const SettingsContent = (props: Props) => {
 
           {activeTab === "screenShare" && (
             <>
+              <CharacterQuickSwitch characters={characters} onManage={() => setActiveTab("characters")} />
               <StageSizeSettings value={stageSize} onChange={onChangeStageSize} />
               <ScreenShareSettings
                 config={screenShareConfig}

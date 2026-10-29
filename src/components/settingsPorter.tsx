@@ -9,10 +9,11 @@ import { AIProviderConfig } from "@/features/chat/aiProviders";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { BackgroundConfig } from "@/features/background/backgroundConfig";
 import { KoeiroParam } from "@/features/constants/koeiroParam";
+import { CharactersApi } from "@/features/characters/useCharacters";
 
 type Props = {
   // Current state (for saving)
-  systemPrompt: string;
+  characters: CharactersApi;
   aiConfig: AIProviderConfig;
   ttsConfig: TTSConfig;
   koeiroParam: KoeiroParam;
@@ -29,7 +30,7 @@ type Status =
   | { type: "error"; message: string };
 
 export const SettingsPorter = ({
-  systemPrompt,
+  characters,
   aiConfig,
   ttsConfig,
   koeiroParam,
@@ -39,12 +40,15 @@ export const SettingsPorter = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Status>({ type: "idle" });
   const [showConfirm, setShowConfirm] = useState(false);
+  const [includeVrm, setIncludeVrm] = useState(false);
   const [pendingSnapshot, setPendingSnapshot] = useState<SettingsSnapshot | null>(null);
 
   // ── Save ──────────────────────────────────────────────────────────────────
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
+    const library = await characters.buildLibrary(includeVrm);
     const snapshot = buildSnapshot({
-      systemPrompt,
+      systemPrompt: characters.activeCard?.systemPrompt ?? "",
+      characters: library,
       aiConfig,
       ttsConfig,
       koeiroParam,
@@ -57,7 +61,7 @@ export const SettingsPorter = ({
     downloadSettings(snapshot, filename);
     setStatus({ type: "saved", filename });
     setTimeout(() => setStatus({ type: "idle" }), 4000);
-  }, [systemPrompt, aiConfig, ttsConfig, koeiroParam, backgroundConfig]);
+  }, [characters, includeVrm, aiConfig, ttsConfig, koeiroParam, backgroundConfig]);
 
   // ── Load ──────────────────────────────────────────────────────────────────
   const handleFileChange = useCallback(
@@ -134,7 +138,11 @@ export const SettingsPorter = ({
           </li>
           <li className="flex items-center gap-6">
             <span className="text-green-500">✓</span>
-            <span><strong>System Prompt</strong></span>
+            <span>
+              <strong>Character cards</strong> — {characters.cards.length}{" "}
+              {characters.cards.length === 1 ? "character" : "characters"} with system prompt, knowledge base,
+              long-term memory, LLM / TTS and VRM choice
+            </span>
           </li>
           <li className="flex items-center gap-6">
             <span className="text-green-500">✓</span>
@@ -153,6 +161,15 @@ export const SettingsPorter = ({
             <span className="text-text-primary/50">Custom background images are NOT included (too large)</span>
           </li>
         </ul>
+        <label className="mt-8 flex items-center gap-8 cursor-pointer text-sm">
+          <input
+            type="checkbox"
+            className="w-16 h-16 accent-primary"
+            checked={includeVrm}
+            onChange={(e) => setIncludeVrm(e.target.checked)}
+          />
+          <span>Also include custom VRM models (much bigger file)</span>
+        </label>
         <div className="mt-8 text-xs text-text-primary/40 border-t border-surface3 pt-8">
           ⚠ The exported file contains your API keys in plain text. Keep it private and do not share it publicly.
         </div>
@@ -169,7 +186,7 @@ export const SettingsPorter = ({
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
-          Export Settings
+          Save Settings to File
         </button>
 
         <button
@@ -181,7 +198,7 @@ export const SettingsPorter = ({
             <polyline points="17 8 12 3 7 8"/>
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
-          Import Settings
+          Load Settings from File
         </button>
 
         <input
@@ -220,7 +237,7 @@ export const SettingsPorter = ({
             <div className="typography-20 font-bold mb-12">Load Settings?</div>
             <div className="text-sm text-text-primary/70 mb-16 space-y-4">
               <p>
-                This will <strong>replace</strong> your current settings including API keys, system prompt, TTS config, and background.
+                This will <strong>replace</strong> your current settings including API keys, character cards, TTS config, and background.
               </p>
               {pendingSnapshot._savedAt && (
                 <p className="text-text-primary/50">
@@ -238,9 +255,10 @@ export const SettingsPorter = ({
                   <span className="font-bold">TTS:</span> {pendingSnapshot.ttsConfig.provider}
                 </div>
                 <div>
-                  <span className="font-bold">Prompt:</span>{" "}
-                  {pendingSnapshot.systemPrompt.slice(0, 60)}
-                  {pendingSnapshot.systemPrompt.length > 60 ? "…" : ""}
+                  <span className="font-bold">Characters:</span>{" "}
+                  {pendingSnapshot.characters
+                    ? pendingSnapshot.characters.cards.map((c) => c.name).join(", ")
+                    : "none in this file (older format) — the prompt will go into your active character"}
                 </div>
               </div>
             </div>

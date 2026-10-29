@@ -5,6 +5,8 @@ import React, { useCallback, useContext, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { StageSizeId } from "@/features/stage/stageConfig";
 import { Settings } from "./settings";
+import { CharactersApi } from "@/features/characters/useCharacters";
+import { ThemeId } from "@/features/theme/theme";
 import { ViewerContext } from "@/features/vrmViewer/viewerContext";
 import { AssistantText } from "./assistantText";
 import { TTSConfig } from "@/features/tts/ttsConfig";
@@ -24,7 +26,9 @@ import { GraphicsConfig } from "@/features/graphics/graphicsConfig";
 
 type Props = {
   aiConfig: AIProviderConfig;
-  systemPrompt: string;
+  characters: CharactersApi;
+  theme: ThemeId;
+  onChangeTheme: (theme: ThemeId) => void;
   chatLog: Message[];
   ttsConfig: TTSConfig;
   koeiroParam: KoeiroParam;
@@ -58,13 +62,11 @@ type Props = {
   onTestStreak: () => void;
   onTestBits: () => void;
   uiVisible: boolean;
-  onChangeSystemPrompt: (systemPrompt: string) => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
   onChangeChatLog: (index: number, text: string) => void;
   onChangeTTSConfig: (config: TTSConfig) => void;
   onChangeKoeiroParam: (x: number, y: number) => void;
   handleClickResetChatLog: () => void;
-  handleClickResetSystemPrompt: () => void;
   fallbackMessage: string;
   onChangeFallbackMessage: (message: string) => void;
   onClickResetFallbackMessage: () => void;
@@ -83,7 +85,6 @@ type Props = {
   onDiscordDisconnect: () => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
   onSaveSettings: () => void;
-  onVrmFileLoad?: (url: string, file?: File) => void;
   graphicsConfig: GraphicsConfig;
   onChangeGraphicsConfig: (config: GraphicsConfig) => void;
   /** Streamer mode: the Settings button opens the pop-out control window instead of the modal. */
@@ -94,7 +95,9 @@ type Props = {
 
 export const Menu = ({
   aiConfig,
-  systemPrompt,
+  characters,
+  theme,
+  onChangeTheme,
   chatLog,
   ttsConfig,
   koeiroParam,
@@ -128,13 +131,11 @@ export const Menu = ({
   onTestStreak,
   onTestBits,
   uiVisible,
-  onChangeSystemPrompt,
   onChangeAiConfig,
   onChangeChatLog,
   onChangeTTSConfig,
   onChangeKoeiroParam,
   handleClickResetChatLog,
-  handleClickResetSystemPrompt,
   fallbackMessage,
   onChangeFallbackMessage,
   onClickResetFallbackMessage,
@@ -153,7 +154,6 @@ export const Menu = ({
   onDiscordDisconnect,
   onLoadSettings,
   onSaveSettings,
-  onVrmFileLoad,
   graphicsConfig,
   onChangeGraphicsConfig,
   onOpenSettings,
@@ -163,36 +163,6 @@ export const Menu = ({
   const [showSettings, setShowSettings] = useState(false);
   const [showChatLog, setShowChatLog] = useState(false);
   const { viewer } = useContext(ViewerContext);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleChangeSystemPrompt = useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) =>
-      onChangeSystemPrompt(event.target.value),
-    [onChangeSystemPrompt]
-  );
-
-  const handleClickOpenVrmFile = useCallback(() => fileInputRef.current?.click(), []);
-
-  const handleChangeVrmFile = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const files = event.target.files;
-      if (!files) return;
-      const file = files[0];
-      if (!file) return;
-      const ext = file.name.split(".").pop();
-      if (ext === "vrm") {
-        const blob = new Blob([file], { type: "application/octet-stream" });
-        const url = window.URL.createObjectURL(blob);
-        if (onVrmFileLoad) {
-          onVrmFileLoad(url, file);
-        } else {
-          viewer.loadVrm(url);
-        }
-      }
-      event.target.value = "";
-    },
-    [viewer, onVrmFileLoad]
-  );
 
   const handleSaveAndClose = useCallback(() => {
     onSaveSettings();
@@ -312,7 +282,9 @@ export const Menu = ({
         <div className="font-M_PLUS_2"><Settings
           aiConfig={aiConfig}
           chatLog={chatLog}
-          systemPrompt={systemPrompt}
+          characters={characters}
+          theme={theme}
+          onChangeTheme={onChangeTheme}
           ttsConfig={ttsConfig}
           koeiroParam={koeiroParam}
           twitchConfig={twitchConfig}
@@ -348,11 +320,8 @@ export const Menu = ({
           onClickClose={() => setShowSettings(false)}
           onSaveAndClose={handleSaveAndClose}
           onChangeAiConfig={onChangeAiConfig}
-          onChangeSystemPrompt={handleChangeSystemPrompt}
           onChangeChatLog={onChangeChatLog}
-          onClickOpenVrmFile={handleClickOpenVrmFile}
           onClickResetChatLog={handleClickResetChatLog}
-          onClickResetSystemPrompt={handleClickResetSystemPrompt}
           fallbackMessage={fallbackMessage}
           onChangeFallbackMessage={onChangeFallbackMessage}
           onClickResetFallbackMessage={onClickResetFallbackMessage}
@@ -383,13 +352,6 @@ export const Menu = ({
         <AssistantText message={assistantMessage} captionStyle={captionStyle} />
       )}
 
-      <input
-        type="file"
-        className="hidden"
-        accept=".vrm"
-        ref={fileInputRef}
-        onChange={handleChangeVrmFile}
-      />
     </>
   );
 };
