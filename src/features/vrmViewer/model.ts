@@ -13,6 +13,7 @@ import {
   registerPoseMixerCallbacks,
 } from "../emoteController/poseController";
 import { isVrmaTag, loadVrmaForTag } from "../emoteController/vrmaController";
+import { isExpressionGestureTag } from "../emoteController/emoteConstants";
 
 // Crossfade time (seconds) between the idle loop and a VRMA animation.
 const VRMA_FADE_SEC = 0.4;
@@ -149,7 +150,11 @@ export class Model {
     this.emoteController?.playEmotion(screenplay.expression);
 
     if (screenplay.pose && this.vrm) {
-      if (isVrmaTag(screenplay.pose)) {
+      if (isExpressionGestureTag(screenplay.pose)) {
+        // Facial gesture ([wink]) — layered on the face, body keeps doing
+        // whatever it's doing (idle / VRMA / pose).
+        if (screenplay.pose === "wink") this.emoteController?.wink();
+      } else if (isVrmaTag(screenplay.pose)) {
         // Full-body .vrma animation (runs through the mixer).
         // Not awaited so speech never waits for the file to load.
         cancelPose(this.vrm);
