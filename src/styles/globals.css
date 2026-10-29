@@ -47,3 +47,45 @@ body {
     display: none;
   }
 }
+
+/* ── Dark theme (default) ─────────────────────────────────────────────────────
+   Charcoal's colours are CSS variables, so the dark theme only has to override
+   them; the few hard-coded Tailwind colours the app uses are patched below. */
+html.dark {
+  color-scheme: dark;
+  --tailwind-color-surface1: #1f1f24;
+  --tailwind-color-surface1--hover: #2a2a31;
+  --tailwind-color-surface1--disabled: rgba(31, 31, 36, 0.32);
+  --tailwind-color-surface3: rgba(255, 255, 255, 0.1);
+  --tailwind-color-surface3--hover: rgba(255, 255, 255, 0.16);
+  --tailwind-color-text1: #f5f5f5;
+}
+
+html.dark body {
+  background-color: #2b2833;
+  background-blend-mode: multiply;
+  color: #f0ecf5;
+}
+
+html.dark .bg-white { background-color: #1b1b20; }
+html.dark .bg-base { background-color: #26222d; }
+html.dark .text-text-primary { color: #e7e1ef; }
+html.dark .text-black,
+html.dark .text-gray-900,
+html.dark .text-gray-800 { color: #f0ecf5; }
+html.dark .text-gray-700,
+html.dark .text-gray-600,
+html.dark .text-gray-500 { color: #b9b3c4; }
+html.dark .bg-gray-50,
+html.dark .bg-gray-100 { background-color: #26262c; }
+html.dark .border-surface3 { border-color: rgba(255, 255, 255, 0.16); }
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  color: #f5f5f5;
+}
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
