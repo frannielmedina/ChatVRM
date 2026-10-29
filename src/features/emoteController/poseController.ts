@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { VRM } from "@pixiv/three-vrm";
+import { ALL_VRMA_TAGS } from "./vrmaController";
 
-// ── Pose tag → file mapping ───────────────────────────────────────────────────
+// ── Pose tag → file mapping (static / 2-frame JSON poses) ────────────────────
+// "wave" is no longer here — it's a full .vrma animation now (see vrmaController.ts).
 export const POSE_TAG_MAP: Record<string, string[]> = {
   bow:           ["/poses/bow.json"],
   cheer:         ["/poses/cheer.json"],
@@ -14,10 +16,12 @@ export const POSE_TAG_MAP: Record<string, string[]> = {
   shrug:         ["/poses/shrug.json"],
   shy:           ["/poses/shy.json"],
   think:         ["/poses/think.json"],
-  wave:          ["/poses/wave1.json", "/poses/wave2.json"],
 };
 
-export const ALL_POSE_TAGS = Object.keys(POSE_TAG_MAP);
+// Every tag the AI may use: JSON poses + VRMA animations.
+// Used by the system prompt (emotionPrompt.ts) and the tag parser (messages.ts),
+// so new tags show up there automatically.
+export const ALL_POSE_TAGS = [...Object.keys(POSE_TAG_MAP), ...ALL_VRMA_TAGS];
 
 // ── Bones to SKIP when applying poses ────────────────────────────────────────
 const SKIP_BONES = new Set([
