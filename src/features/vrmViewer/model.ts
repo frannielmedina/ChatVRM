@@ -14,6 +14,7 @@ import {
 } from "../emoteController/poseController";
 import { isVrmaTag, loadVrmaForTag } from "../emoteController/vrmaController";
 import { isExpressionGestureTag } from "../emoteController/emoteConstants";
+import { IdleController } from "../emoteController/idleController";
 
 // Crossfade time (seconds) between the idle loop and a VRMA animation.
 const VRMA_FADE_SEC = 0.4;
@@ -27,7 +28,7 @@ export class Model {
   private _lipSync?: LipSync;
 
   // ── VRMA playback state ──
-  private _idleAction?: THREE.AnimationAction;
+  private _idle?: IdleController;
   private _vrmaActions = new Map<string, THREE.AnimationAction>();
   private _currentVrma?: THREE.AnimationAction;
   private _currentVrmaTag?: string;
@@ -50,10 +51,11 @@ export class Model {
     vrm.scene.name = "VRMRoot";
     VRMUtils.rotateVRM0(vrm);
     this.mixer = new THREE.AnimationMixer(vrm.scene);
-    this._idleAction = undefined;
     this._vrmaActions.clear();
     this._currentVrma = undefined;
     this._currentVrmaTag = undefined;
+    // Procedural idle (breathing, sway, arms-down pose) — replaces idle_loop.vrma
+    this._idle = new IdleController(vrm);
     this.emoteController = new EmoteController(vrm, this._lookAtTargetParent);
 
     // No-op — pose system no longer pauses the mixer
@@ -64,7 +66,7 @@ export class Model {
     if (this.vrm) {
       cancelPose(this.vrm);
       this.mixer?.stopAllAction();
-      this._idleAction = undefined;
+      this._idle = undefined;
       this._vrmaActions.clear();
       this._currentVrma = undefined;
       this._currentVrmaTag = undefined;
@@ -79,9 +81,6 @@ export class Model {
     const clip = vrmAnimation.createAnimationClip(vrm);
     const action = mixer.clipAction(clip);
     action.play();
-    // This is the idle loop — remember it so VRMA animations can crossfade
-    // out of it and back into it.
-    this._idleAction = action;
   }
 
   /**
@@ -113,14 +112,14 @@ export class Model {
     action.play();
 
     if (previous === action) {
-      // Same animation again: restart it, idle is already faded out
+      // Same animation again: restart it
       action.fadeIn(VRMA_FADE_SEC);
     } else if (previous && previous.isRunning()) {
       // Another VRMA is playing: crossfade straight into the new one
       action.crossFadeFrom(previous, VRMA_FADE_SEC, false);
-    } else if (this._idleAction) {
-      action.crossFadeFrom(this._idleAction, VRMA_FADE_SEC, false);
     } else {
+      // Coming from the procedural idle: fade the VRMA in (the idle is
+      // faded out in update() through _vrmaWeight()).
       action.fadeIn(VRMA_FADE_SEC);
     }
 
@@ -136,14 +135,17 @@ export class Model {
     this._currentVrma = undefined;
     this._currentVrmaTag = undefined;
 
-    const idle = this._idleAction;
-    if (idle) {
-      idle.reset();
-      idle.play();
-      idle.crossFadeFrom(current, VRMA_FADE_SEC, false);
-    } else {
-      current.fadeOut(VRMA_FADE_SEC);
-    }
+    // The procedural idle fades back in on its own as this weight drops to 0.
+    current.fadeOut(VRMA_FADE_SEC);
+  }
+
+  /** 0..1: how much any .vrma animation currently controls the body. */
+  private _vrmaWeight(): number {
+    let w = 0;
+    this._vrmaActions.forEach((a) => {
+      if (a.enabled) w += a.getEffectiveWeight();
+    });
+    return Math.min(1, w);
   }
 
   public async speak(buffer: ArrayBuffer, screenplay: Screenplay) {
@@ -188,8 +190,18 @@ export class Model {
     this.emoteController?.update(delta);
 
     // 3. Idle animation mixer — ALWAYS runs (never paused).
-    //    This drives body/arm bones via the idle_loop.vrma animation.
+    //    Only drives .vrma one-shot animations now (the idle is procedural).
     this.mixer?.update(delta);
+
+    // 3a. Procedural idle (breathing, head sway, arms-down rest pose).
+    //     Fades out while a .vrma animation plays, back in afterwards.
+    if (this._idle) {
+      this._idle.update(
+        delta,
+        this.emoteController?.currentEmotion ?? "neutral",
+        1 - this._vrmaWeight()
+      );
+    }
 
     // 3b. When a VRMA animation is about to end, start fading back to idle
     //     (instead of freezing on its last frame).

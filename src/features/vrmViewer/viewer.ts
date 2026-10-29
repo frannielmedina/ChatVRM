@@ -1,8 +1,6 @@
 import * as THREE from "three";
 import { Model } from "./model";
-import { loadVRMAnimation } from "@/lib/VRMAnimation/loadVRMAnimation";
 import { preloadAllVrma } from "@/features/emoteController/vrmaController";
-import { buildUrl } from "@/utils/buildUrl";
 import { STAGE_ELEMENT_ID } from "@/features/stage/stageConfig";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import {
@@ -103,8 +101,6 @@ export class Viewer {
       if (!this.model?.vrm) return;
       this.model.vrm.scene.traverse((obj) => { obj.frustumCulled = false; });
       this._scene.add(this.model.vrm.scene);
-      const vrma = await loadVRMAnimation(buildUrl("/idle_loop.vrma"));
-      if (vrma) this.model.loadAnimation(vrma);
       preloadAllVrma(); // warm the cache for /poses/*.vrma in the background
 
       const box = new THREE.Box3().setFromObject(this.model.vrm.scene);
