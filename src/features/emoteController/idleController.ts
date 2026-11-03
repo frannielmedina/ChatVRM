@@ -4,7 +4,8 @@ import { VRM } from "@pixiv/three-vrm";
 /**
  * Procedural idle animation, ported from the aicompanion repo
  * (VTuberCanvas.tsx). It replaces the old idle_loop.vrma:
- *   - breathing (spine), gentle float of the whole body
+ *   - grounded breathing (spine / chest / shoulders) and a slow weight shift
+ *     — the feet stay planted; only the upper body moves
  *   - head / neck sway that reacts to the current emotion
  *   - relaxed arms-down rest pose with a tiny sway
  *
@@ -16,6 +17,17 @@ import { VRM } from "@pixiv/three-vrm";
 // Rotation limits/targets, straight from aicompanion.
 const ARM_DOWN = 1.2; // upper arms (rad) — relaxed A-pose
 const FOREARM_BEND = 0.1;
+
+// Whole-body up/down float (aicompanion had 0.025). It made the character look
+// like she was flying because the feet bob too, so it's OFF by default.
+// Set to e.g. 0.01 if you want a tiny hover back.
+const BODY_FLOAT_AMPLITUDE = 0;
+
+// Grounded idle (radians). Increase for livelier, decrease for stiller.
+const BREATH_SPEED = 1.5;       // ≈ one breath every 4 s
+const BREATH_CHEST = 0.016;     // chest/spine swell
+const BREATH_SHOULDER = 0.022;  // shoulders rise slightly when inhaling
+const WEIGHT_SHIFT = 0.014;     // slow side-to-side lean of the torso
 
 /** Frame-rate independent version of aicompanion's `x += (target - x) * k` (k per 60 fps frame). */
 function ease(k: number, delta: number): number {
@@ -114,14 +126,28 @@ export class IdleController {
     // ── Apply ─────────────────────────────────────────────────────────────
     this.apply("head", this._head.x, this._head.y, this._head.z, blend);
     this.apply("neck", 0, 0, sz * Math.sin(t * 0.4) * 0.015, blend);
-    this.apply("spine", sx * Math.sin(this._breathTimer * 0.9) * 0.012, 0, 0, blend);
+
+    // Breathing: chest swells, shoulders lift a touch on the inhale.
+    const breath = Math.sin(this._breathTimer * BREATH_SPEED);     // -1..1
+    const inhale = breath * 0.5 + 0.5;                            //  0..1
+    // Slow weight shift: lean the spine one way and the chest back the other,
+    // so the head stays roughly over the feet (feet are never moved).
+    const shift = Math.sin(this._breathTimer * 0.35) * WEIGHT_SHIFT;
+
+    this.apply("spine", sx * breath * BREATH_CHEST * 0.6, 0, sz * shift, blend);
+    this.apply("chest", sx * breath * BREATH_CHEST, 0, sz * -shift * 0.6, blend);
+    this.apply("upperChest", sx * breath * BREATH_CHEST * 0.5, 0, 0, blend);
+    this.apply("leftShoulder", 0, 0, sz * inhale * BREATH_SHOULDER, blend);
+    this.apply("rightShoulder", 0, 0, sz * -inhale * BREATH_SHOULDER, blend);
     this.apply("leftUpperArm", this._leftUpper.x, 0, this._leftUpper.z, blend);
     this.apply("rightUpperArm", this._rightUpper.x, 0, this._rightUpper.z, blend);
     this.apply("leftLowerArm", 0, 0, this._leftLower, blend);
     this.apply("rightLowerArm", 0, 0, this._rightLower, blend);
 
-    // Gentle floating of the whole body
-    this._vrm.scene.position.y = Math.sin(ft * 1.1) * 0.025 * blend;
+    if (BODY_FLOAT_AMPLITUDE > 0) {
+      this._vrm.scene.position.y =
+        Math.sin(ft * 1.1) * BODY_FLOAT_AMPLITUDE * blend;
+    }
   }
 
   private apply(bone: string, x: number, y: number, z: number, blend: number) {
