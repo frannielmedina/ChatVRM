@@ -11,6 +11,8 @@ import { BackgroundSettings } from "./backgroundSettings";
 import { CaptionSettings } from "./captionSettings";
 import { VisionSettings } from "./visionSettings";
 import { DiscordSettings } from "./discordSettings";
+import { MinecraftSettings } from "./minecraftSettings";
+import { MinecraftConfig, MinecraftStatus } from "@/features/minecraft/minecraftConfig";
 import { SettingsPorter } from "./settingsPorter";
 import { CharacterCards, CharacterQuickSwitch } from "./characterCards";
 import { CharactersApi } from "@/features/characters/useCharacters";
@@ -56,6 +58,8 @@ type Props = {
   discordConfig: DiscordConfig;
   discordConnected: boolean;
   discordConnectionError: string | null;
+  minecraftConfig: MinecraftConfig;
+  minecraftStatus: MinecraftStatus;
   adBreakConfig: AdBreakConfig;
   onChangeAdBreakConfig: (config: AdBreakConfig) => void;
   onTestAdBreak: () => void;
@@ -97,6 +101,9 @@ type Props = {
   onChangeDiscordConfig: (config: DiscordConfig) => void;
   onDiscordConnect: () => void;
   onDiscordDisconnect: () => void;
+  onChangeMinecraftConfig: (config: MinecraftConfig) => void;
+  onMinecraftConnect: () => void;
+  onMinecraftDisconnect: () => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
 };
 
@@ -151,6 +158,7 @@ type TabId =
   | "ui"
   | "tts"
   | "discord"
+  | "minecraft"
   | "twitch"
   | "vision"
   | "graphics"
@@ -164,6 +172,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "ui", label: "UI & Background", icon: "🎨" },
   { id: "tts", label: "TTS", icon: "🔊" },
   { id: "discord", label: "Discord", icon: "💬" },
+  { id: "minecraft", label: "Minecraft", icon: "⛏️" },
   { id: "twitch", label: "Twitch", icon: "🟣" },
   { id: "vision", label: "Vision", icon: "👁️" },
   { id: "graphics", label: "3D", icon: "🎮" },
@@ -200,6 +209,8 @@ export const SettingsContent = (props: Props) => {
     discordConfig,
     discordConnected,
     discordConnectionError,
+    minecraftConfig,
+    minecraftStatus,
     adBreakConfig,
     onChangeAdBreakConfig,
     onTestAdBreak,
@@ -236,6 +247,9 @@ export const SettingsContent = (props: Props) => {
     onChangeDiscordConfig,
     onDiscordConnect,
     onDiscordDisconnect,
+    onChangeMinecraftConfig,
+    onMinecraftConnect,
+    onMinecraftDisconnect,
     onLoadSettings,
     graphicsConfig,
     onChangeGraphicsConfig,
@@ -343,6 +357,7 @@ export const SettingsContent = (props: Props) => {
                 ttsConfig={ttsConfig}
                 koeiroParam={koeiroParam}
                 backgroundConfig={backgroundConfig}
+                captionStyle={captionStyle}
                 onLoadSettings={onLoadSettings}
               />
 
@@ -555,6 +570,16 @@ export const SettingsContent = (props: Props) => {
                 onDisconnect={onDiscordDisconnect}
               />
             </>
+          )}
+
+          {activeTab === "minecraft" && (
+            <MinecraftSettings
+              config={minecraftConfig}
+              status={minecraftStatus}
+              onChangeConfig={onChangeMinecraftConfig}
+              onConnect={onMinecraftConnect}
+              onDisconnect={onMinecraftDisconnect}
+            />
           )}
 
           {activeTab === "twitch" && (

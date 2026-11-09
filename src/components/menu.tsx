@@ -17,6 +17,7 @@ import { BackgroundConfig } from "@/features/background/backgroundConfig";
 import { KoeiroParam } from "@/features/constants/koeiroParam";
 import { SettingsSnapshot } from "@/features/settings/settingsPorter";
 import { CaptionStyle } from "./captionSettings";
+import { MinecraftConfig, MinecraftStatus } from "@/features/minecraft/minecraftConfig";
 import { VisionConfig } from "@/features/vision/visionConfig";
 import { VisionStatus } from "@/features/vision/useVision";
 import { DiscordConfig } from "@/features/discord/discordConfig";
@@ -48,6 +49,8 @@ type Props = {
   discordConfig: DiscordConfig;
   discordConnected: boolean;
   discordConnectionError: string | null;
+  minecraftConfig: MinecraftConfig;
+  minecraftStatus: MinecraftStatus;
   adBreakConfig: AdBreakConfig;
   onChangeAdBreakConfig: (config: AdBreakConfig) => void;
   onTestAdBreak: () => void;
@@ -84,6 +87,9 @@ type Props = {
   onChangeDiscordConfig: (config: DiscordConfig) => void;
   onDiscordConnect: () => void;
   onDiscordDisconnect: () => void;
+  onChangeMinecraftConfig: (config: MinecraftConfig) => void;
+  onMinecraftConnect: () => void;
+  onMinecraftDisconnect: () => void;
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
   onSaveSettings: () => void;
   graphicsConfig: GraphicsConfig;
@@ -118,6 +124,8 @@ export const Menu = ({
   discordConfig,
   discordConnected,
   discordConnectionError,
+  minecraftConfig,
+  minecraftStatus,
   adBreakConfig,
   onChangeAdBreakConfig,
   onTestAdBreak,
@@ -153,6 +161,9 @@ export const Menu = ({
   onVisionCaptureNow,
   onChangeDiscordConfig,
   onDiscordConnect,
+  onChangeMinecraftConfig,
+  onMinecraftConnect,
+  onMinecraftDisconnect,
   onDiscordDisconnect,
   onLoadSettings,
   onSaveSettings,
@@ -303,6 +314,11 @@ export const Menu = ({
           discordConfig={discordConfig}
           discordConnected={discordConnected}
           discordConnectionError={discordConnectionError}
+          minecraftConfig={minecraftConfig}
+          minecraftStatus={minecraftStatus}
+          onChangeMinecraftConfig={onChangeMinecraftConfig}
+          onMinecraftConnect={onMinecraftConnect}
+          onMinecraftDisconnect={onMinecraftDisconnect}
           adBreakConfig={adBreakConfig}
           onChangeAdBreakConfig={onChangeAdBreakConfig}
           onTestAdBreak={onTestAdBreak}

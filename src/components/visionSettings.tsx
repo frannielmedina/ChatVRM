@@ -1,5 +1,10 @@
 import React, { useCallback } from "react";
-import { VisionConfig, VISION_INTERVALS } from "@/features/vision/visionConfig";
+import {
+  VisionConfig,
+  VISION_INTERVALS,
+  VISION_MODEL_PRESETS,
+  resolveVisionModel,
+} from "@/features/vision/visionConfig";
 import { VisionStatus } from "@/features/vision/useVision";
 
 type Props = {
@@ -72,7 +77,7 @@ export const VisionSettings = ({
       {/* Info box */}
       <div className="mb-16 p-12 bg-surface1 rounded-8 text-sm text-text-primary/70 leading-relaxed">
         <p>
-          Uses <strong>Qwen 3.6 27B</strong> (Groq multimodal) to periodically analyze your
+          Uses a Groq multimodal model (default <strong>Qwen 3.6 27B</strong>, changeable below) to periodically analyze your
           screen and have the character comment on it in character. Works with both{" "}
           <strong>Chrome Screen Share</strong> and <strong>VDO.Ninja</strong> modes.
         </p>
@@ -146,15 +151,29 @@ export const VisionSettings = ({
           )}
         </div>
 
-        {/* Model info */}
+        {/* Vision model — free text */}
         <div>
-          <div className="font-bold mb-4 text-sm">Vision Model</div>
-          <div className="px-12 py-8 bg-surface3 rounded-8 text-sm flex items-center justify-between">
-            <span className="font-mono text-xs">{config.model}</span>
-            <span className="text-xs text-purple-600 font-bold">Groq Multimodal</span>
-          </div>
+          <div className="font-bold mb-4 text-sm">Vision Model (VLM)</div>
+          <input
+            className="px-12 py-8 w-full bg-surface3 hover:bg-surface3-hover rounded-8 text-sm"
+            type="text"
+            list="vision-model-presets"
+            spellCheck={false}
+            placeholder="e.g. Qwen 3.8 27b  or  qwen/qwen3.8-27b"
+            value={config.model}
+            onChange={(e) => update({ model: e.target.value })}
+          />
+          <datalist id="vision-model-presets">
+            {VISION_MODEL_PRESETS.map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
           <div className="text-xs text-text-primary/50 mt-4">
-            Qwen 3.6 27B — optimized for fast visual analysis
+            Type a model id or a name like &quot;Qwen 3.8 27b&quot;. Sent to Groq as:{" "}
+            <span className="font-mono">{resolveVisionModel(config.model)}</span>
+          </div>
+          <div className="text-xs text-text-primary/50 mt-2">
+            The model must support image input on your Groq account.
           </div>
         </div>
 
@@ -237,7 +256,7 @@ export const VisionSettings = ({
           </summary>
           <div className="mt-8 space-y-4 leading-relaxed">
             <p>1. Every N seconds, a frame is captured from the active screen share (Chrome or VDO.Ninja).</p>
-            <p>2. The frame is sent to <strong>Qwen 3.6</strong> on Groq via its multimodal API.</p>
+            <p>2. The frame is sent to the vision model you chose (on Groq) via its multimodal API.</p>
             <p>3. The model describes what it sees on screen, in character.</p>
             <p>4. The description becomes a normal chat message — your VTuber says it aloud.</p>
             <p>5. You can also click <strong>Capture Now</strong> for an instant observation, or use the 👁 toolbar button to toggle vision on/off without opening Settings.</p>

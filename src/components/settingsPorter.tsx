@@ -9,6 +9,7 @@ import { AIProviderConfig } from "@/features/chat/aiProviders";
 import { TTSConfig } from "@/features/tts/ttsConfig";
 import { BackgroundConfig } from "@/features/background/backgroundConfig";
 import { KoeiroParam } from "@/features/constants/koeiroParam";
+import { CaptionStyle } from "./captionSettings";
 import { CharactersApi } from "@/features/characters/useCharacters";
 
 type Props = {
@@ -18,6 +19,7 @@ type Props = {
   ttsConfig: TTSConfig;
   koeiroParam: KoeiroParam;
   backgroundConfig: BackgroundConfig;
+  captionStyle: CaptionStyle;
 
   // Callbacks (for loading)
   onLoadSettings: (snapshot: SettingsSnapshot) => void;
@@ -35,6 +37,7 @@ export const SettingsPorter = ({
   ttsConfig,
   koeiroParam,
   backgroundConfig,
+  captionStyle,
   onLoadSettings,
 }: Props) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -53,6 +56,7 @@ export const SettingsPorter = ({
       ttsConfig,
       koeiroParam,
       backgroundConfig,
+      captionStyle,
     });
     const filename = `chatvrm-settings-${new Date()
       .toISOString()
@@ -61,7 +65,7 @@ export const SettingsPorter = ({
     downloadSettings(snapshot, filename);
     setStatus({ type: "saved", filename });
     setTimeout(() => setStatus({ type: "idle" }), 4000);
-  }, [characters, includeVrm, aiConfig, ttsConfig, koeiroParam, backgroundConfig]);
+  }, [characters, includeVrm, aiConfig, ttsConfig, koeiroParam, backgroundConfig, captionStyle]);
 
   // ── Load ──────────────────────────────────────────────────────────────────
   const handleFileChange = useCallback(
