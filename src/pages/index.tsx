@@ -1123,6 +1123,7 @@ function Home() {
         assistantMessage={assistantMessage}
         twitchConfig={twitchConfig}
         twitchConnected={twitchConnected}
+        respondingTo={activeTwitchMessage?.username ?? null}
         screenShareConfig={screenShareConfig}
         backgroundConfig={backgroundConfig}
         captionStyle={captionStyle}
@@ -1185,6 +1186,7 @@ function Home() {
           activeMessage={activeTwitchMessage}
           queuedCount={twitchQueueCount}
           isConnected={twitchConnected}
+          captionStyle={captionStyle}
         />
       )}
 
