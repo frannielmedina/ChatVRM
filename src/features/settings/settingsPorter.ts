@@ -1,6 +1,7 @@
 import { AIProviderConfig, DEFAULT_AI_CONFIG } from "@/features/chat/aiProviders";
 import { TTSConfig, DEFAULT_TTS_CONFIG } from "@/features/tts/ttsConfig";
 import { BackgroundConfig, DEFAULT_BACKGROUND_CONFIG } from "@/features/background/backgroundConfig";
+import { CaptionStyle, DEFAULT_CAPTION_STYLE } from "@/components/captionSettings";
 import { KoeiroParam, DEFAULT_PARAM } from "@/features/constants/koeiroParam";
 import { SYSTEM_PROMPT } from "@/features/constants/systemPromptConstants";
 import type { LibrarySnapshot } from "@/features/characters/useCharacters";
@@ -18,6 +19,8 @@ export type SettingsSnapshot = {
   ttsConfig: TTSConfig;
   koeiroParam: KoeiroParam;
   backgroundConfig: Omit<BackgroundConfig, "imageUrl">; // skip large base64 blobs by default
+  /** Caption look: boxed/color, font, bold/cursive/slashed, word fade, etc. */
+  captionStyle?: CaptionStyle;
   /** All character cards with knowledge base, long-term memory (and optionally VRM models). */
   characters?: LibrarySnapshot;
 };
@@ -34,6 +37,7 @@ export function buildSnapshot(params: {
   ttsConfig: TTSConfig;
   koeiroParam: KoeiroParam;
   backgroundConfig: BackgroundConfig;
+  captionStyle?: CaptionStyle;
 }): SettingsSnapshot {
   // Strip the (potentially huge) base64 image URL — user must re-upload on load
   const { imageUrl: _imageUrl, ...bgWithoutImage } = params.backgroundConfig;
@@ -47,6 +51,7 @@ export function buildSnapshot(params: {
     ttsConfig: params.ttsConfig,
     koeiroParam: params.koeiroParam,
     backgroundConfig: bgWithoutImage,
+    captionStyle: params.captionStyle,
   };
 }
 
@@ -115,6 +120,11 @@ export function parseSettingsFile(jsonText: string): LoadSettingsResult {
             imageUrl: "", // always clear — images aren't saved in the file
           }
         : DEFAULT_BACKGROUND_CONFIG,
+    // Older files have no captionStyle → undefined → current caption settings are left alone
+    captionStyle:
+      obj.captionStyle && typeof obj.captionStyle === "object"
+        ? { ...DEFAULT_CAPTION_STYLE, ...(obj.captionStyle as Partial<CaptionStyle>) }
+        : undefined,
   };
 
   return { ok: true, snapshot };
