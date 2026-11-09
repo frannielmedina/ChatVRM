@@ -10,6 +10,18 @@ body {
   font-family: Arial, sans-serif;
 }
 
+/* Caption: each word fades/rises in; delay is set inline per word */
+@keyframes capWordIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cap-word {
+  display: inline-block;
+  white-space: pre;
+  opacity: 0;
+  animation: capWordIn 260ms ease forwards;
+}
+
 @layer components {
   .input-range {
     -webkit-appearance: none;
