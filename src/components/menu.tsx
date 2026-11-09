@@ -35,6 +35,7 @@ type Props = {
   assistantMessage: string;
   twitchConfig: TwitchConfig;
   twitchConnected: boolean;
+  respondingTo?: string | null;
   screenShareConfig: ScreenShareConfig;
   backgroundConfig: BackgroundConfig;
   captionStyle: CaptionStyle;
@@ -104,6 +105,7 @@ export const Menu = ({
   assistantMessage,
   twitchConfig,
   twitchConnected,
+  respondingTo,
   screenShareConfig,
   backgroundConfig,
   captionStyle,
@@ -349,7 +351,11 @@ export const Menu = ({
 
       {/* Caption */}
       {!showChatLog && assistantMessage && (
-        <AssistantText message={assistantMessage} captionStyle={captionStyle} />
+        <AssistantText
+          message={assistantMessage}
+          captionStyle={captionStyle}
+          respondingTo={twitchConnected ? respondingTo : null}
+        />
       )}
 
     </>

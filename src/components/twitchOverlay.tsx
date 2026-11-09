@@ -1,10 +1,13 @@
 import { TwitchBadge, TwitchMessage } from "@/features/twitch/twitchClient";
 import { useEffect, useRef, useState } from "react";
+import { CaptionStyle, DEFAULT_CAPTION_STYLE, captionFontStyle } from "./captionSettings";
 
 type Props = {
   activeMessage: TwitchMessage | null;
   queuedCount: number;
   isConnected: boolean;
+  // Shares the caption font settings (Hachi Maru Pop / bold / cursive / slashed)
+  captionStyle?: CaptionStyle;
 };
 
 // ── Twitch emote rendering ────────────────────────────────────────────────────
@@ -114,7 +117,12 @@ function accentColor(msg: TwitchMessage): string {
 // disappears the moment Miko finishes speaking (or is cleared early because
 // the user got banned). If more messages are waiting, a small counter shows.
 
-export const TwitchOverlay = ({ activeMessage, queuedCount, isConnected }: Props) => {
+export const TwitchOverlay = ({
+  activeMessage,
+  queuedCount,
+  isConnected,
+  captionStyle = DEFAULT_CAPTION_STYLE,
+}: Props) => {
   const [displayed, setDisplayed] = useState<TwitchMessage | null>(null);
   const [visible, setVisible] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -142,32 +150,35 @@ export const TwitchOverlay = ({ activeMessage, queuedCount, isConnected }: Props
   return (
     <div
       className="absolute left-16 bottom-80 z-20 pointer-events-none select-none"
-      style={{ maxWidth: 320 }}
+      style={{ maxWidth: 360 }}
     >
       <div
-        className="px-12 py-8 bg-black/75 rounded-12 shadow-lg"
+        className="px-16 py-12 rounded-16 shadow-lg"
         style={{
-          borderLeft: `4px solid ${accentColor(m)}`,
+          ...captionFontStyle(captionStyle),
+          background: "rgba(20, 12, 30, 0.78)",
+          border: `3px solid ${accentColor(m)}`,
           opacity: visible ? 1 : 0,
           transform: visible ? "translateY(0)" : "translateY(6px)",
           transition: "opacity 200ms ease, transform 200ms ease",
         }}
       >
-        <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs leading-snug items-center">
-          {/* Badges */}
+        {/* Line 1: badges + USERNAME: */}
+        <div className="flex flex-wrap gap-x-4 gap-y-2 items-center" style={{ fontSize: 15, lineHeight: 1.25 }}>
           {m.badgeImages?.map((badge) => (
             <Badge key={badge.name} badge={badge} />
           ))}
-
-          {/* Username */}
-          <span className="font-bold whitespace-nowrap" style={{ color: m.color || "#9146FF" }}>
+          <span className="whitespace-nowrap" style={{ color: m.color || "#9146FF" }}>
             {m.username}:
           </span>
+        </div>
 
-          {/* Message */}
-          <span className="text-white/90 break-words flex flex-wrap items-center gap-0.5">
-            {renderMessageWithEmotes(m.message, m.emotesTag)}
-          </span>
+        {/* Line 2+: the chat message */}
+        <div
+          className="text-white break-words flex flex-wrap items-center gap-0.5"
+          style={{ fontSize: 16, lineHeight: 1.3, marginTop: 4 }}
+        >
+          {renderMessageWithEmotes(m.message, m.emotesTag)}
         </div>
       </div>
 

@@ -16,9 +16,17 @@ export type CaptionStyle = {
   shadowColor: string;
   bgOpacity: number;
   position: "bottom" | "top" | "middle";
-  // Typewriter
-  typewriterEnabled: boolean;
-  typewriterSpeed: number;
+  // Font style toggles (can be combined)
+  bold: boolean;
+  italic: boolean;     // "cursive" / slanted
+  strike: boolean;     // "slashed" / strikethrough
+  // Boxed caption (rounded colored box around the text)
+  boxed: boolean;
+  boxColor: string;
+  boxOpacity: number;  // 0..1
+  // Word-by-word fade-in (replaces the old typewriter)
+  wordFade: boolean;
+  wordFadeSpeed: number; // ms between words
   // Linger / disappear
   lingerDuration: number;   // seconds (0 = stay forever until next message)
   fadeOut: boolean;         // true = fade, false = instant disappear
@@ -27,20 +35,42 @@ export type CaptionStyle = {
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   enabled: true,
   fontSize: 28,
-  fontFamily: "Arial",
+  fontFamily: "Hachi Maru Pop",
   textColor: "#ffffff",
-  strokeColor: "#000000",
-  strokeWidth: 6,
-  shadowBlur: 8,
-  shadowColor: "rgba(0,0,0,0.9)",
+  strokeColor: "#c2185b",
+  strokeWidth: 0,
+  shadowBlur: 0,
+  shadowColor: "rgba(120,0,60,0.45)",
   bgOpacity: 0,
   position: "bottom",
-  // Cut, not animated, by default: text appears/disappears instantly.
-  typewriterEnabled: false,
-  typewriterSpeed: 18,
+  bold: true,
+  italic: false,
+  strike: false,
+  boxed: true,
+  boxColor: "#ff8fc7",
+  boxOpacity: 0.92,
+  wordFade: true,
+  wordFadeSpeed: 140,
   lingerDuration: 5,
   fadeOut: false,
 };
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/** Shared font styling (family + bold / italic / strikethrough) for captions and overlays. */
+export function captionFontStyle(s: CaptionStyle): React.CSSProperties {
+  return {
+    fontFamily: `'${s.fontFamily}', Arial, sans-serif`,
+    fontWeight: s.bold ? 800 : 400,
+    fontStyle: s.italic ? "italic" : "normal",
+    textDecoration: s.strike ? "line-through" : "none",
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -52,6 +82,7 @@ type Props = {
 };
 
 const FONT_OPTIONS = [
+  "Hachi Maru Pop",
   "Arial",
   "Arial Black",
   "Impact",
@@ -128,28 +159,88 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
         {/* ── Live preview ──────────────────────────────────────────────── */}
         <div
           className="relative flex items-center justify-center rounded-8 overflow-hidden"
-          style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", height: 96 }}
+          style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", height: 120 }}
         >
-          <p
+          <div
             style={{
-              fontSize: `${Math.min(style.fontSize, 22)}px`,
-              fontFamily: `'${style.fontFamily}', sans-serif`,
-              fontWeight: 800,
-              color: style.textColor,
-              WebkitTextStroke: `${style.strokeWidth}px ${style.strokeColor}`,
-              paintOrder: "stroke fill" as React.CSSProperties["paintOrder"],
-              textShadow: `0 0 ${style.shadowBlur}px ${style.shadowColor}`,
-              background:
-                style.bgOpacity > 0
-                  ? `rgba(0,0,0,${style.bgOpacity})`
-                  : "transparent",
-              padding: style.bgOpacity > 0 ? "4px 10px" : undefined,
-              borderRadius: style.bgOpacity > 0 ? "6px" : undefined,
+              background: style.boxed
+                ? hexToRgba(style.boxColor, style.boxOpacity)
+                : style.bgOpacity > 0
+                ? `rgba(0,0,0,${style.bgOpacity})`
+                : "transparent",
+              borderRadius: style.boxed ? 14 : style.bgOpacity > 0 ? 6 : undefined,
+              border: style.boxed ? "2px solid rgba(255,255,255,0.7)" : undefined,
+              padding: style.boxed || style.bgOpacity > 0 ? "6px 14px" : undefined,
+              textAlign: "center",
             }}
           >
-            Preview caption text here!
-          </p>
+            {style.boxed && (
+              <div
+                style={{
+                  ...captionFontStyle(style),
+                  fontSize: 9,
+                  letterSpacing: "0.08em",
+                  color: "rgba(255,255,255,0.85)",
+                  marginBottom: 2,
+                }}
+              >
+                RESPONDING TO USERNAME:
+              </div>
+            )}
+            <p
+              style={{
+                ...captionFontStyle(style),
+                fontSize: `${Math.min(style.fontSize, 22)}px`,
+                color: style.textColor,
+                WebkitTextStroke: style.strokeWidth ? `${style.strokeWidth}px ${style.strokeColor}` : undefined,
+                paintOrder: "stroke fill" as React.CSSProperties["paintOrder"],
+                textShadow: `0 0 ${style.shadowBlur}px ${style.shadowColor}`,
+              }}
+            >
+              Preview caption text here!
+            </p>
+          </div>
         </div>
+
+        {/* ── Boxed caption ─────────────────────────────────────────────── */}
+        <div>
+          <div className="font-bold mb-6 text-sm">Caption Box</div>
+          <TogglePair
+            value={style.boxed}
+            onChange={(v) => update({ boxed: v })}
+            labelOn="🎀 Boxed"
+            labelOff="▭ No box"
+          />
+        </div>
+
+        {style.boxed && (
+          <div className="grid grid-cols-2 gap-12">
+            <div>
+              <div className="font-bold mb-4 text-sm">Box Color</div>
+              <div className="flex items-center gap-8">
+                <input
+                  type="color"
+                  value={style.boxColor}
+                  onChange={(e) => update({ boxColor: e.target.value })}
+                  className="w-40 h-32 rounded-4 cursor-pointer border-0"
+                />
+                <span className="text-xs text-text-primary/60">{style.boxColor}</span>
+              </div>
+            </div>
+            <div>
+              <div className="font-bold mb-4 text-sm flex justify-between">
+                <span>Box Opacity</span>
+                <span className="font-normal text-text-primary/60">{Math.round(style.boxOpacity * 100)}%</span>
+              </div>
+              <input
+                type="range" min={0.2} max={1} step={0.05}
+                value={style.boxOpacity}
+                className="input-range w-full"
+                onChange={(e) => update({ boxOpacity: Number(e.target.value) })}
+              />
+            </div>
+          </div>
+        )}
 
         {/* ── Position ──────────────────────────────────────────────────── */}
         <div>
@@ -185,6 +276,31 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
               </option>
             ))}
           </select>
+        </div>
+
+        {/* ── Font style ────────────────────────────────────────────────── */}
+        <div>
+          <div className="font-bold mb-6 text-sm">Font Style</div>
+          <div className="grid grid-cols-3 gap-6">
+            {([
+              { key: "bold", label: "B  Bold", css: { fontWeight: 800 } },
+              { key: "italic", label: "I  Cursive", css: { fontStyle: "italic" } },
+              { key: "strike", label: "S  Slashed", css: { textDecoration: "line-through" } },
+            ] as const).map((o) => (
+              <button
+                key={o.key}
+                onClick={() => update({ [o.key]: !style[o.key] } as Partial<CaptionStyle>)}
+                style={o.css}
+                className={`py-6 rounded-8 text-sm border-2 transition-all ${
+                  style[o.key]
+                    ? "border-primary bg-primary/10"
+                    : "border-surface3 bg-surface3 hover:border-primary/40"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ── Font size ─────────────────────────────────────────────────── */}
@@ -276,33 +392,31 @@ export const CaptionSettings = ({ style, onChangeStyle }: Props) => {
         {/* ── Divider ───────────────────────────────────────────────────── */}
         <div className="border-t border-surface3" />
 
-        {/* ── Typewriter ────────────────────────────────────────────────── */}
+        {/* ── Word-by-word fade ─────────────────────────────────────────── */}
         <div>
-          <div className="font-bold mb-6 text-sm">Typewriter Effect</div>
+          <div className="font-bold mb-6 text-sm">Word-by-word Fade</div>
           <TogglePair
-            value={style.typewriterEnabled}
-            onChange={(v) => update({ typewriterEnabled: v })}
-            labelOn="✍ Enabled"
+            value={style.wordFade}
+            onChange={(v) => update({ wordFade: v })}
+            labelOn="✨ Enabled"
             labelOff="⚡ Disabled (instant)"
           />
         </div>
 
-        {style.typewriterEnabled && (
+        {style.wordFade && (
           <div>
             <div className="font-bold mb-4 text-sm flex justify-between">
-              <span>Typing Speed</span>
-              <span className="font-normal text-text-primary/60">
-                {style.typewriterSpeed}ms / character
-              </span>
+              <span>Word Speed</span>
+              <span className="font-normal text-text-primary/60">{style.wordFadeSpeed}ms / word</span>
             </div>
             <input
-              type="range" min={2} max={80} step={2}
-              value={style.typewriterSpeed}
+              type="range" min={40} max={500} step={10}
+              value={style.wordFadeSpeed}
               className="input-range w-full"
-              onChange={(e) => update({ typewriterSpeed: Number(e.target.value) })}
+              onChange={(e) => update({ wordFadeSpeed: Number(e.target.value) })}
             />
             <div className="text-xs text-text-primary/50 mt-4">
-              Lower = faster typing · Higher = slower typing
+              Captions show 2 lines at a time; when they fill up, the next 2 lines fade in.
             </div>
           </div>
         )}
