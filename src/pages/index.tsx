@@ -51,6 +51,13 @@ import {
   DEFAULT_DISCORD_CONFIG,
 } from "@/features/discord/discordConfig";
 import { discordClient } from "@/features/discord/discordClient";
+import {
+  MinecraftConfig,
+  MinecraftStatus,
+  DEFAULT_MINECRAFT_CONFIG,
+  DEFAULT_MINECRAFT_STATUS,
+} from "@/features/minecraft/minecraftConfig";
+import { minecraftClient } from "@/features/minecraft/minecraftClient";
 import { DiscordOverlay } from "@/components/discordOverlay";
 import { AlertOverlay } from "@/components/alertOverlay";
 import { AdBreakConfig, DEFAULT_AD_BREAK_CONFIG } from "@/features/adBreak/adBreakConfig";
@@ -147,6 +154,10 @@ function Home() {
   const [activeTwitchMessage, setActiveTwitchMessage] = useState<TwitchMessage | null>(null);
   const [twitchQueueCount, setTwitchQueueCount] = useState(0);
 
+  // Minecraft (via tools/minecraft-bridge)
+  const [minecraftConfig, setMinecraftConfig] = useState<MinecraftConfig>(DEFAULT_MINECRAFT_CONFIG);
+  const [minecraftStatus, setMinecraftStatus] = useState<MinecraftStatus>(DEFAULT_MINECRAFT_STATUS);
+
   // Discord
   const [discordConfig, setDiscordConfig] = useState<DiscordConfig>(DEFAULT_DISCORD_CONFIG);
   const [discordConnected, setDiscordConnected] = useState(false);
@@ -181,6 +192,8 @@ function Home() {
   const bannedTwitchUsersRef = useRef<Set<string>>(new Set());
 
   const sendChatRef = useRef<(text: string) => Promise<void>>(async () => {});
+  // Text of the AI's most recent answer — read by the Minecraft queue to type it into game chat.
+  const lastAiReplyRef = useRef("");
   const twitchUnsubRef = useRef<(() => void) | null>(null);
   const twitchCmdUnsubRef = useRef<(() => void) | null>(null);
   const twitchBanUnsubRef = useRef<(() => void) | null>(null);
@@ -205,6 +218,8 @@ function Home() {
           setTwitchConfig({ ...DEFAULT_TWITCH_CONFIG, ...params.twitchConfig });
         if (params.discordConfig)
           setDiscordConfig({ ...DEFAULT_DISCORD_CONFIG, ...params.discordConfig });
+        if (params.minecraftConfig)
+          setMinecraftConfig({ ...DEFAULT_MINECRAFT_CONFIG, ...params.minecraftConfig });
         if (params.backgroundConfig)
           setBackgroundConfig({ ...DEFAULT_BACKGROUND_CONFIG, ...params.backgroundConfig });
         if (params.captionStyle)
@@ -240,6 +255,7 @@ function Home() {
           ttsConfig,
           twitchConfig,
           discordConfig,
+          minecraftConfig,
           backgroundConfig,
           captionStyle,
           visionConfig,
@@ -252,7 +268,7 @@ function Home() {
         })
       )
     );
-  }, [fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
+  }, [fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, minecraftConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
 
   // ── VRM model persistence ──────────────────────────────────────────────────
   const [viewerReady, setViewerReady] = useState(false);
@@ -302,6 +318,7 @@ function Home() {
         ttsConfig,
         twitchConfig,
         discordConfig,
+        minecraftConfig,
         backgroundConfig,
         captionStyle,
         visionConfig,
@@ -313,7 +330,7 @@ function Home() {
         autonomousConfig,
       })
     );
-  }, [fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
+  }, [fallbackMessage, koeiroParam, chatLog, aiConfig, ttsConfig, twitchConfig, discordConfig, minecraftConfig, backgroundConfig, captionStyle, visionConfig, graphicsConfig, stageSize, screenShareConfig, streamerConfig, adBreakConfig, autonomousConfig]);
 
   // Apply 3D settings (FPS cap, resolution, lights, auto quality) to the viewer.
   useEffect(() => {
@@ -345,6 +362,7 @@ function Home() {
       ...snapshot.backgroundConfig,
       imageUrl: "",
     });
+    if (snapshot.captionStyle) setCaptionStyle(snapshot.captionStyle);
   }, [loadLibrary, updateCard, activeCard]);
 
   const handleChangeChatLog = useCallback(
@@ -382,6 +400,7 @@ function Home() {
       if (!text?.trim()) return;
 
       setChatProcessing(true);
+      lastAiReplyRef.current = "";
 
       const messageLog: Message[] = [
         ...chatLog,
@@ -473,6 +492,7 @@ function Home() {
       }
 
       const displayText = cleanedResponse;
+      lastAiReplyRef.current = stripAsteriskActions(cleanedResponse);
 
       await new Promise<void>((resolve) => {
         handleSpeakAi(
@@ -873,6 +893,96 @@ function Home() {
     };
   }, []);
 
+  // ── Minecraft ──────────────────────────────────────────────────────────────
+  // In-game chat → AI → reply typed back into game chat, one message at a time.
+  const minecraftConfigRef = useRef(minecraftConfig);
+  useEffect(() => { minecraftConfigRef.current = minecraftConfig; }, [minecraftConfig]);
+  const minecraftQueueRef = useRef<{ prompt: string; replyTo?: string }[]>([]);
+  const minecraftProcessingRef = useRef(false);
+  const minecraftUnsubsRef = useRef<(() => void)[]>([]);
+
+  const processMinecraftQueue = useCallback(async () => {
+    if (minecraftProcessingRef.current) return;
+    minecraftProcessingRef.current = true;
+
+    while (minecraftQueueRef.current.length > 0) {
+      const next = minecraftQueueRef.current.shift()!;
+
+      // Don't talk over the Twitch queue
+      while (twitchProcessingRef.current) {
+        await new Promise((r) => setTimeout(r, 300));
+      }
+
+      notifyActivity();
+      lastAiReplyRef.current = "";
+      await sendChatRef.current(next.prompt);
+
+      const reply = lastAiReplyRef.current.replace(/\[([a-zA-Z_ ]*?)\]/g, "").trim();
+      if (reply && minecraftConfigRef.current.sendRepliesToGame) {
+        minecraftClient.say(next.replyTo ? `${next.replyTo}: ${reply}` : reply);
+      }
+    }
+
+    minecraftProcessingRef.current = false;
+  }, [notifyActivity]);
+
+  const enqueueMinecraft = useCallback(
+    (prompt: string, replyTo?: string) => {
+      // Keep the backlog short — old chatter isn't worth answering late
+      if (minecraftQueueRef.current.length >= 5) minecraftQueueRef.current.shift();
+      minecraftQueueRef.current.push({ prompt, replyTo });
+      processMinecraftQueue();
+    },
+    [processMinecraftQueue]
+  );
+
+  const handleMinecraftDisconnect = useCallback(() => {
+    minecraftUnsubsRef.current.forEach((u) => u());
+    minecraftUnsubsRef.current = [];
+    minecraftQueueRef.current = [];
+    minecraftClient.disconnect();
+    setMinecraftStatus(DEFAULT_MINECRAFT_STATUS);
+  }, []);
+
+  const handleMinecraftConnect = useCallback(() => {
+    minecraftUnsubsRef.current.forEach((u) => u());
+
+    const statusUnsub = minecraftClient.onStatus(setMinecraftStatus);
+
+    const chatUnsub = minecraftClient.onChat((m) => {
+      const cfg = minecraftConfigRef.current;
+      if (!cfg.respondToChat) return;
+      const text = m.message.trim();
+      if (!text || text.startsWith("/")) return;
+      if (cfg.mentionOnly && !m.whisper) {
+        const trigger = cfg.triggerWord.trim().toLowerCase();
+        if (trigger && !text.toLowerCase().includes(trigger)) return;
+      }
+      enqueueMinecraft(`[Minecraft chat] ${m.username}: ${text}`, m.username);
+    });
+
+    const eventUnsub = minecraftClient.onEvent((ev) => {
+      if (!minecraftConfigRef.current.reactToEvents) return;
+      if (ev.kind === "playerJoined")
+        enqueueMinecraft(`[Minecraft event] The player ${ev.username} just joined the Minecraft server. Greet them briefly.`);
+      else if (ev.kind === "playerLeft")
+        enqueueMinecraft(`[Minecraft event] The player ${ev.username} just left the Minecraft server. Say a short goodbye.`);
+      else if (ev.kind === "death")
+        enqueueMinecraft(`[Minecraft event] You (the bot) just died in Minecraft. React briefly.`);
+    });
+
+    minecraftUnsubsRef.current = [statusUnsub, chatUnsub, eventUnsub];
+    minecraftClient.connect(minecraftConfig);
+  }, [minecraftConfig, enqueueMinecraft]);
+
+  // Leave the game when the page goes away
+  useEffect(() => {
+    return () => {
+      minecraftUnsubsRef.current.forEach((u) => u());
+      minecraftClient.disconnect(true);
+    };
+  }, []);
+
   // ── Discord ────────────────────────────────────────────────────────────────
   const handleDiscordConnect = useCallback(() => {
     // Clean up previous subscriptions
@@ -1136,6 +1246,11 @@ function Home() {
         discordConfig={discordConfig}
         discordConnected={discordConnected}
         discordConnectionError={discordConnectionError}
+        minecraftConfig={minecraftConfig}
+        minecraftStatus={minecraftStatus}
+        onChangeMinecraftConfig={setMinecraftConfig}
+        onMinecraftConnect={handleMinecraftConnect}
+        onMinecraftDisconnect={handleMinecraftDisconnect}
         adBreakConfig={adBreakConfig}
         onChangeAdBreakConfig={setAdBreakConfig}
         onTestAdBreak={() => startAdCountdown()}
