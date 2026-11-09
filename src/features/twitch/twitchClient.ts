@@ -5,6 +5,7 @@ export type TwitchMessage = {
   timestamp: number;
   isMod?: boolean;
   isBroadcaster?: boolean;
+  isSubscriber?: boolean; // subscriber / founder badge
   // Extended fields parsed from IRC tags
   emotesTag?: string;      // raw emotes tag value, e.g. "25:0-4/112291:6-15"
   roomId?: string;         // numeric Twitch channel id (room-id tag) — used to load 7TV/BTTV/FFZ emotes
@@ -247,6 +248,9 @@ export class TwitchClient {
           badgesStr.includes("broadcaster") ||
           userStr.toLowerCase() === this.channel.toLowerCase();
 
+        const isSubscriber =
+          tags["subscriber"] === "1" || /(^|,)(subscriber|founder)\//.test(badgesStr);
+
         const twitchMsg: TwitchMessage = {
           username: tags["display-name"] || userStr,
           message: msg,
@@ -254,6 +258,7 @@ export class TwitchClient {
           timestamp: Date.now(),
           isMod,
           isBroadcaster,
+          isSubscriber,
           // Pass through the raw emotes tag for rendering
           emotesTag: tags["emotes"] || "",
           roomId: tags["room-id"] || undefined,
