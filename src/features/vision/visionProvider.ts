@@ -1,4 +1,4 @@
-import { VisionConfig } from "./visionConfig";
+import { VisionConfig, resolveVisionModel } from "./visionConfig";
 
 // ── Cached display capture stream for VDO.Ninja vision ───────────────────────
 // We keep a single long-lived stream so we don't prompt the user every capture.
@@ -148,7 +148,7 @@ export async function analyzeFrameWithVision(
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: config.model,
+        model: resolveVisionModel(config.model),
         max_tokens: 150,
         temperature: 0.7,
         messages: [
