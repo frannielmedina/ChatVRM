@@ -50,6 +50,7 @@ import {
   DiscordConfig,
   DEFAULT_DISCORD_CONFIG,
 } from "@/features/discord/discordConfig";
+import { buildTwitchPrompt, hasTwitchRoleTags, TWITCH_ROLE_SYSTEM_NOTE } from "@/features/twitch/twitchRoles";
 import { discordClient } from "@/features/discord/discordClient";
 import {
   MinecraftConfig,
@@ -337,9 +338,12 @@ function Home() {
     if (viewerReady) viewer.applyGraphics(graphicsConfig);
   }, [graphicsConfig, viewerReady, viewer]);
 
-  const handleResetCommand = useCallback(() => {
-    setChatLog([]);
-    setAssistantMessage("");
+  // `by` = who ran !reset in Twitch chat. When given, the (now empty) history gets a
+  // single confirmation line and the caption shows it too.
+  const handleResetCommand = useCallback((by?: string) => {
+    const note = by ? `✅ chat history cleared by ${by}` : "";
+    setChatLog(note ? [{ role: "assistant", content: note }] : []);
+    setAssistantMessage(note);
     twitchQueueRef.current = [];
     twitchProcessingRef.current = false;
     setActiveTwitchMessage(null);
@@ -409,7 +413,10 @@ function Home() {
       setChatLog(messageLog);
 
       const allMessages: Message[] = [
-        { role: "system", content: buildPrompt(text) },
+        {
+          role: "system",
+          content: buildPrompt(text) + (hasTwitchRoleTags(text) ? TWITCH_ROLE_SYSTEM_NOTE : ""),
+        },
         ...messageLog,
       ];
 
@@ -633,7 +640,7 @@ function Home() {
 
       setActiveTwitchMessage(next);
       notifyActivity();
-      const prompt = `[Twitch chat] ${next.username}: ${next.message}`;
+      const prompt = buildTwitchPrompt(next);
       await sendChatRef.current(prompt);
 
       // Only clear if a ban handler hasn't already cleared it early
@@ -743,9 +750,11 @@ function Home() {
       processTwitchQueue();
     });
 
-    const cmdUnsub = twitchClient.onCommand((command) => {
+    const cmdUnsub = twitchClient.onCommand((command, cmdMsg) => {
       if (command === "!reset") {
-        handleResetCommand();
+        // Mods and the channel owner only (the client already filters, this is a second check)
+        if (!cmdMsg.isMod && !cmdMsg.isBroadcaster) return;
+        handleResetCommand(cmdMsg.username);
       } else if (command === "!ad") {
         startAdCountdown();
       }
