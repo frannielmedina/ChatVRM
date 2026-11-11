@@ -6,7 +6,12 @@ import {
   textsToScreenplay,
   Screenplay,
 } from "@/features/messages/messages";
-import { speakCharacter } from "@/features/messages/speakCharacter";
+import { speakCharacter, fetchAudio } from "@/features/messages/speakCharacter";
+import { AikaCollabPanel } from "@/components/aikaCollabPanel";
+import {
+  AikaPeerConfig, DEFAULT_AIKA_PEER_CONFIG, loadAikaPeerConfig, saveAikaPeerConfig,
+} from "@/features/aikaPeer/aikaPeerConfig";
+import { useAikaCollab, GenerateGuestLine } from "@/features/aikaPeer/useAikaCollab";
 import { MessageInputContainer } from "@/components/messageInputContainer";
 import { SYSTEM_PROMPT } from "@/features/constants/systemPromptConstants";
 import { KoeiroParam, DEFAULT_PARAM } from "@/features/constants/koeiroParam";
@@ -521,6 +526,56 @@ function Home() {
     },
     [buildPrompt, chatLog, handleSpeakAi, aiConfig, koeiroParam, twitchConfig]
   );
+
+  // ── Aika collab: Miko as a guest on Aika's stream ─────────────────────────
+  // Generates one line (LLM → emotion tag → TTS) WITHOUT speaking it locally:
+  // the audio goes to the widget page that Aika's OBS loads. Uses its own short
+  // history so guest chatter doesn't pollute Miko's normal chat log.
+  const [aikaConfig, setAikaConfig] = useState<AikaPeerConfig>(DEFAULT_AIKA_PEER_CONFIG);
+  useEffect(() => { setAikaConfig(loadAikaPeerConfig()); }, []);
+  useEffect(() => { saveAikaPeerConfig(aikaConfig); }, [aikaConfig]);
+  const aikaHistoryRef = useRef<Message[]>([]);
+
+  const generateAikaLine: GenerateGuestLine = useCallback(async ({ incoming, aikaMood }) => {
+    if (incoming === null) aikaHistoryRef.current = []; // new session
+    const userText = incoming === null
+      ? "[You just stepped onto Aika's stream as a guest. Greet Aika and her viewers.]"
+      : `Aika${aikaMood ? ` (${aikaMood})` : ""} says: ${incoming}`;
+    const history: Message[] = [...aikaHistoryRef.current, { role: "user", content: userText }];
+    const guestNote =
+      "\n\nCONTEXT: You are a guest on another AI VTuber's livestream (Aika), talking with her live, " +
+      "and her viewers are watching. Reply in 1-2 short spoken sentences, in English, no lists, no stage directions.";
+    const messages = truncateHistory(
+      [{ role: "system", content: buildPrompt(userText) + guestNote }, ...history],
+      aiConfig.provider
+    );
+    const stream = await getChatResponseStream(messages, aiConfig);
+    const reader = stream.getReader();
+    let full = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) full += value;
+      }
+    } finally { reader.releaseLock(); }
+
+    const { cleanedText } = extractAiDirective(stripAsteriskActions(full));
+    if (!cleanedText.trim()) return null;
+    const talks = textsToScreenplay([ensureEmotionTag(cleanedText)], koeiroParam);
+    if (talks.length === 0) return null;
+    const play = talks[0];
+    const spoken = stripAsteriskActions(cleanedText);
+    const audio = await fetchAudio(play.talk, ttsConfig, koeiroParam);
+    const reply: Message = { role: "assistant", content: spoken };
+    aikaHistoryRef.current = [...history, reply].slice(-12);
+    return {
+      text: spoken, expression: play.expression as any, pose: play.pose,
+      style: play.talk.style, audio,
+    };
+  }, [buildPrompt, aiConfig, koeiroParam, ttsConfig]);
+
+  const aika = useAikaCollab(aikaConfig, generateAikaLine);
 
   useEffect(() => {
     sendChatRef.current = handleSendChat;
@@ -1199,6 +1254,24 @@ function Home() {
       <BackgroundRenderer config={backgroundConfig} stageFixed={stageSize !== "free"} />
 
       <Introduction aiConfig={aiConfig} onChangeAiConfig={setAiConfig} />
+
+      {!isStreamer && (
+        <AikaCollabPanel
+          config={aikaConfig}
+          onChangeConfig={setAikaConfig}
+          status={aika.status}
+          statusDetail={aika.statusDetail}
+          canKnock={aika.canKnock}
+          inSession={aika.inSession}
+          widgetViewers={aika.widgetViewers}
+          log={aika.log}
+          onConnect={aika.connect}
+          onDisconnect={aika.disconnect}
+          onRequestSession={aika.requestSession}
+          onEndSession={aika.endSession}
+          getWidgetUrl={aika.widgetUrl}
+        />
+      )}
 
       <Stage size={stageSize}>
       <ScreenShareBackground
