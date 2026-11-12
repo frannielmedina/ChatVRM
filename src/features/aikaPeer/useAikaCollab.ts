@@ -149,7 +149,15 @@ export function useAikaCollab(config: AikaPeerConfig, generateLine: GenerateGues
           senderRef.current?.send({ t: "show" });
           addLog("session open — Miko is on stage");
           timers.current.cap = setTimeout(() => { addLog("soft cap reached — leaving"); clientRef.current?.endSession(); }, SOFT_CAP_MS);
-          runTurnRef.current(null);
+          // Aika's OBS only loads the widget now and the 16 MB VRM takes ~15–20 s:
+          // hold the first line until the widget says it is ready (max 35 s).
+          addLog("waiting for the widget to load…");
+          const myStart = s.startedAt;
+          (senderRef.current?.waitReady(35000) ?? Promise.resolve(false)).then((ok) => {
+            if (!s.active || s.startedAt !== myStart) return;
+            addLog(ok ? "widget ready" : "widget never reported ready — speaking anyway");
+            runTurnRef.current(null);
+          });
         },
         sessionEnd: () => {
           const s = sessionRef.current;

@@ -17,7 +17,19 @@ export type WidgetFrame =
       text: string;
       audio: ArrayBuffer;
     }
-  | { t: "hello" };
+  | { t: "ready" }; // widget → control tab: VRM is loaded, I can speak
+
+/** PeerJS splits big messages (>16 KB) and rebuilds `audio` as a Uint8Array.
+ *  decodeAudioData only accepts an ArrayBuffer, so always hand it a real one. */
+export function normalizeFrame(f: WidgetFrame): WidgetFrame {
+  if (f && f.t === "speak") {
+    const a: any = f.audio;
+    if (!(a instanceof ArrayBuffer) && a && ArrayBuffer.isView(a)) {
+      return { ...f, audio: a.buffer.slice(a.byteOffset, a.byteOffset + a.byteLength) as ArrayBuffer };
+    }
+  }
+  return f;
+}
 
 const BC_NAME = "chatvrm-aika-widget-v1";
 const PEER_ID_KEY = "chatVRM_aikaWidgetPeerId";
@@ -43,21 +55,41 @@ export class WidgetSender {
   private bc: BroadcastChannel | null = null;
   private lastVisible = false;
   onViewers?: (n: number) => void;
+  private ready = false;
+  private readyWaiters: Array<() => void> = [];
+
+  private markReady() {
+    this.ready = true;
+    this.readyWaiters.splice(0).forEach((r) => r());
+  }
+
+  /** Resolves true once a widget reports its VRM loaded, false after timeoutMs. */
+  waitReady(timeoutMs: number): Promise<boolean> {
+    if (this.ready) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const t = setTimeout(() => resolve(false), timeoutMs);
+      this.readyWaiters.push(() => { clearTimeout(t); resolve(true); });
+    });
+  }
 
   async start() {
     if (this.peer) return;
-    if (typeof BroadcastChannel !== "undefined") this.bc = new BroadcastChannel(BC_NAME);
+    if (typeof BroadcastChannel !== "undefined") {
+      this.bc = new BroadcastChannel(BC_NAME);
+      this.bc.onmessage = (e) => { if (e.data?.t === "ready") this.markReady(); };
+    }
     const { Peer } = await import("peerjs");
     const peer = new Peer(getWidgetPeerId());
     this.peer = peer;
     peer.on("connection", (conn) => {
+      conn.on("data", (d) => { if ((d as WidgetFrame)?.t === "ready") this.markReady(); });
       conn.on("open", () => {
         this.conns.add(conn);
         this.onViewers?.(this.conns.size);
         // A widget that (re)loads mid-session must learn the current state.
         conn.send({ t: this.lastVisible ? "show" : "hide" } as WidgetFrame);
       });
-      const drop = () => { this.conns.delete(conn); this.onViewers?.(this.conns.size); };
+      const drop = () => { this.conns.delete(conn); this.onViewers?.(this.conns.size); if (this.conns.size === 0) this.ready = false; };
       conn.on("close", drop);
       conn.on("error", drop);
     });
@@ -90,7 +122,20 @@ export class WidgetReceiver {
   private stopped = false;
   private retry: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private peerId: string | null, private onFrame: (f: WidgetFrame) => void) {}
+  constructor(
+    private peerId: string | null,
+    private onFrameRaw: (f: WidgetFrame) => void,
+    private onOpen?: () => void
+  ) {}
+
+  private onFrame = (f: WidgetFrame) => this.onFrameRaw(normalizeFrame(f));
+
+  /** Tell the control tab this widget is loaded and can speak. */
+  sendReady() {
+    const f: WidgetFrame = { t: "ready" };
+    try { this.conn?.send(f); } catch {}
+    try { this.bc?.postMessage(f); } catch {}
+  }
 
   async start() {
     if (typeof BroadcastChannel !== "undefined") {
@@ -116,6 +161,7 @@ export class WidgetReceiver {
     peer.on("open", () => {
       const conn = peer.connect(this.peerId!, { reliable: true });
       this.conn = conn;
+      conn.on("open", () => this.onOpen?.());
       conn.on("data", (d) => this.onFrame(d as WidgetFrame));
       conn.on("close", again);
       conn.on("error", again);
