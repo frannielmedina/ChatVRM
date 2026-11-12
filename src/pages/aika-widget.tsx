@@ -2,7 +2,9 @@
 // Aika loads this URL as an OBS browser source. It draws ONLY Miko on a fully
 // transparent canvas (no background image, no UI) and plays her TTS audio.
 //
-//   /aika-widget/?peer=<id shown in the Aika panel>&vrm=<optional public .vrm URL>
+//   /aika-widget/?peer=<id>&vrm=<public .vrm URL>&view=full|close&zoom=1&shiftY=0
+//     view=full  (default) whole body, head to toe     view=close  head & shoulders
+//     zoom       0.3–3, >1 closer                       shiftY      world units, + moves view up
 //
 // Audio only plays between "show" and "hide" frames, i.e. after Aika's
 // ai_talk_start confirmation (the guide: never play audio before it).
@@ -15,7 +17,6 @@ import type { Screenplay } from "@/features/messages/messages";
 export default function AikaWidget() {
   const { viewer } = useContext(ViewerContext);
   const [visible, setVisible] = useState(false);
-  const [needsClick, setNeedsClick] = useState(false);
   const visibleRef = useRef(false);
   const queue = useRef<Promise<void>>(Promise.resolve());
 
@@ -41,6 +42,16 @@ export default function AikaWidget() {
       if (!canvas) return;
       const params = new URLSearchParams(window.location.search);
       viewer.setup(canvas);
+      // Framing must be set BEFORE the model loads: the viewer re-frames itself
+      // from the measured model bounds once loading finishes.
+      if ((params.get("view") || "full") !== "close") {
+        viewer.setFullBodyView(true);
+        viewer.setScreenShareTuning(
+          parseFloat(params.get("zoom") || "1") || 1,
+          parseFloat(params.get("shiftY") || "0") || 0
+        );
+        viewer.setScreenShareFraming(true);
+      }
       viewer.loadVrm(params.get("vrm") || buildUrl("/AvatarSample_B.vrm"));
     },
     [viewer]
@@ -68,24 +79,21 @@ export default function AikaWidget() {
 
   useEffect(() => {
     const peerId = new URLSearchParams(window.location.search).get("peer");
-    const rx = new WidgetReceiver(peerId, handleFrame);
+    let loaded = false;
+    const rx = new WidgetReceiver(peerId, handleFrame, () => { if (loaded) rx.sendReady(); });
     rx.start();
-    return () => rx.stop();
-  }, [handleFrame]);
-
-  // Browsers (not OBS) block audio until a click — show a tiny hint then.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      if (ctx.state === "suspended") setNeedsClick(true);
-      ctx.close();
-    }, 800);
-    return () => clearTimeout(t);
-  }, []);
+    // The VRM is big (~16 MB): tell the control tab only once Miko can really speak.
+    const poll = setInterval(() => {
+      if (!loaded && viewer.model?.vrm) {
+        loaded = true;
+        rx.sendReady();
+      }
+    }, 300);
+    return () => { clearInterval(poll); rx.stop(); };
+  }, [handleFrame, viewer]);
 
   return (
     <div
-      onClick={() => setNeedsClick(false)}
       style={{ position: "fixed", inset: 0, background: "transparent", overflow: "hidden" }}
     >
       <canvas
@@ -95,12 +103,6 @@ export default function AikaWidget() {
           opacity: visible ? 1 : 0, transition: "opacity 400ms ease",
         }}
       />
-      {needsClick && (
-        <div style={{ position: "fixed", bottom: 6, left: 6, font: "11px Arial", color: "#fff",
-          background: "rgba(0,0,0,.6)", padding: "3px 6px", borderRadius: 4 }}>
-          click once to enable audio (not needed in OBS)
-        </div>
-      )}
     </div>
   );
 }
