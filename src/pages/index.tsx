@@ -576,6 +576,23 @@ function Home() {
   }, [buildPrompt, aiConfig, koeiroParam, ttsConfig]);
 
   const aika = useAikaCollab(aikaConfig, generateAikaLine);
+  const aikaPanel = (
+    <AikaCollabPanel
+      config={aikaConfig}
+      onChangeConfig={setAikaConfig}
+      status={aika.status}
+      statusDetail={aika.statusDetail}
+      canKnock={aika.canKnock}
+      inSession={aika.inSession}
+      widgetViewers={aika.widgetViewers}
+      log={aika.log}
+      onConnect={aika.connect}
+      onDisconnect={aika.disconnect}
+      onRequestSession={aika.requestSession}
+      onEndSession={aika.endSession}
+      getWidgetUrl={aika.widgetUrl}
+    />
+  );
 
   useEffect(() => {
     sendChatRef.current = handleSendChat;
@@ -1255,23 +1272,6 @@ function Home() {
 
       <Introduction aiConfig={aiConfig} onChangeAiConfig={setAiConfig} />
 
-      {!isStreamer && (
-        <AikaCollabPanel
-          config={aikaConfig}
-          onChangeConfig={setAikaConfig}
-          status={aika.status}
-          statusDetail={aika.statusDetail}
-          canKnock={aika.canKnock}
-          inSession={aika.inSession}
-          widgetViewers={aika.widgetViewers}
-          log={aika.log}
-          onConnect={aika.connect}
-          onDisconnect={aika.disconnect}
-          onRequestSession={aika.requestSession}
-          onEndSession={aika.endSession}
-          getWidgetUrl={aika.widgetUrl}
-        />
-      )}
 
       <Stage size={stageSize}>
       <ScreenShareBackground
@@ -1305,6 +1305,7 @@ function Home() {
       )}
 
       <Menu
+        aikaCollabPanel={aikaPanel}
         aiConfig={aiConfig}
         characters={characters}
         theme={theme}
@@ -1439,6 +1440,7 @@ function Home() {
 
           {controlWin && (
             <StreamerControlWindow
+              aikaCollabPanel={aikaPanel}
               win={controlWin}
               onClosed={() => setControlWin(null)}
               chatLog={chatLog}
