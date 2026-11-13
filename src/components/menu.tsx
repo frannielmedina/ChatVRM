@@ -98,6 +98,8 @@ type Props = {
   onOpenSettings?: () => void;
   stageSize: StageSizeId;
   onChangeStageSize: (size: StageSizeId) => void;
+  /** Pre-built Aika collab panel (state lives in index.tsx). */
+  aikaCollabPanel?: React.ReactNode;
 };
 
 export const Menu = ({
@@ -172,6 +174,7 @@ export const Menu = ({
   onOpenSettings,
   stageSize,
   onChangeStageSize,
+  aikaCollabPanel,
 }: Props) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showChatLog, setShowChatLog] = useState(false);
@@ -335,6 +338,7 @@ export const Menu = ({
           graphicsConfig={graphicsConfig}
           onChangeGraphicsConfig={onChangeGraphicsConfig}
           isMobile={isMobile}
+          aikaCollabPanel={aikaCollabPanel}
           onClickClose={() => setShowSettings(false)}
           onSaveAndClose={handleSaveAndClose}
           onChangeAiConfig={onChangeAiConfig}

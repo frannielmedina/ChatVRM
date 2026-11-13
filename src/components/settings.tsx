@@ -79,6 +79,7 @@ type Props = {
   onChangeStageSize: (size: StageSizeId) => void;
   isMobile: boolean;
   onClickClose: () => void;
+  aikaCollabPanel?: React.ReactNode;
   onSaveAndClose: () => void;
   onChangeAiConfig: (config: AIProviderConfig) => void;
   onChangeChatLog: (index: number, text: string) => void;
@@ -158,6 +159,7 @@ type TabId =
   | "ui"
   | "tts"
   | "discord"
+  | "aika"
   | "minecraft"
   | "twitch"
   | "vision"
@@ -172,6 +174,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "ui", label: "UI & Background", icon: "🎨" },
   { id: "tts", label: "TTS", icon: "🔊" },
   { id: "discord", label: "Discord", icon: "💬" },
+  { id: "aika", label: "Aika Collab", icon: "🐱" },
   { id: "minecraft", label: "Minecraft", icon: "⛏️" },
   { id: "twitch", label: "Twitch", icon: "🟣" },
   { id: "vision", label: "Vision", icon: "👁️" },
@@ -225,6 +228,7 @@ export const SettingsContent = (props: Props) => {
     onTestStreak,
     onTestBits,
     onClickClose,
+    aikaCollabPanel,
     onSaveAndClose,
     onChangeAiConfig,
     onChangeChatLog,
@@ -571,6 +575,8 @@ export const SettingsContent = (props: Props) => {
               />
             </>
           )}
+
+          {activeTab === "aika" && aikaCollabPanel}
 
           {activeTab === "minecraft" && (
             <MinecraftSettings

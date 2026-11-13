@@ -26,6 +26,7 @@ import { StreamerConfig } from "@/features/streamer/streamerConfig";
 import { BroadcastState } from "@/features/streamer/rtmpBroadcaster";
 
 export type StreamerControlProps = {
+  aikaCollabPanel?: React.ReactNode;
   win: Window;
   onClosed: () => void;
 
@@ -80,7 +81,7 @@ export type StreamerControlProps = {
   onStopBroadcast: () => void;
 };
 
-type TabId = "chat" | "screen" | "twitch" | "tts" | "llm" | "caption" | "bg" | "vision" | "3d" | "stream";
+type TabId = "chat" | "screen" | "twitch" | "tts" | "llm" | "caption" | "bg" | "vision" | "3d" | "stream" | "aika";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "💬" },
@@ -93,6 +94,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "vision", label: "Vision", icon: "👁️" },
   { id: "3d", label: "3D", icon: "🎮" },
   { id: "stream", label: "Stream", icon: "📡" },
+  { id: "aika", label: "Aika", icon: "🐱" },
 ];
 
 const Content = (p: StreamerControlProps) => {
@@ -197,6 +199,7 @@ const Content = (p: StreamerControlProps) => {
             {tab === "3d" && (
               <GraphicsSettings config={p.graphicsConfig} onChangeConfig={p.onChangeGraphicsConfig} />
             )}
+            {tab === "aika" && p.aikaCollabPanel}
             {tab === "stream" && (
               <StreamerSettings
                 config={p.streamerConfig}

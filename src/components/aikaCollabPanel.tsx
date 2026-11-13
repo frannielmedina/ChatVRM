@@ -23,23 +23,19 @@ const STATUS_COLOR: Record<PeerStatus, string> = {
 };
 
 export function AikaCollabPanel(p: Props) {
-  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const set = (patch: Partial<AikaPeerConfig>) => p.onChangeConfig({ ...p.config, ...patch });
   const live = !p.config.testMode;
 
   const input = "w-full px-8 py-4 rounded-4 bg-white/10 text-white text-xs outline-none";
   return (
-    <div className="fixed left-16 bottom-16 z-40 text-white" style={{ maxWidth: 340 }}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="px-16 py-8 rounded-8 bg-black/70 text-sm font-bold hover:bg-black/90"
-      >
+    <div className="text-white">
+      <div className="typography-20 font-bold text-text-primary mb-12">
         <span style={{ color: STATUS_COLOR[p.status] }}>●</span> Aika collab {p.inSession ? "· ON STAGE" : ""}
-      </button>
+      </div>
 
-      {open && (
-        <div className="mt-8 p-16 rounded-8 bg-black/85 text-xs space-y-8 backdrop-blur">
+      {(
+        <div className="p-16 rounded-8 bg-black/85 text-xs space-y-8">
           <div className="flex items-center gap-8">
             <b style={{ color: STATUS_COLOR[p.status] }}>{p.status}</b>
             <span className="opacity-70 truncate">{p.statusDetail}</span>
