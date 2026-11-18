@@ -24,6 +24,7 @@ export type MinecraftConfig = {
   triggerWord: string;      // e.g. the character's name
   sendRepliesToGame: boolean; // type the AI's answer into game chat
   reactToEvents: boolean;   // react (via the AI) when someone joins / leaves / the bot dies
+  narrateActivity: boolean; // comment (via the AI) on what the bot is doing while it plays on its own
 };
 
 export const DEFAULT_MINECRAFT_CONFIG: MinecraftConfig = {
@@ -38,6 +39,7 @@ export const DEFAULT_MINECRAFT_CONFIG: MinecraftConfig = {
   triggerWord: "miko",
   sendRepliesToGame: true,
   reactToEvents: false,
+  narrateActivity: true,
 };
 
 export type MinecraftState =
@@ -69,4 +71,5 @@ export type MinecraftChatMessage = {
 export type MinecraftGameEvent =
   | { kind: "playerJoined"; username: string }
   | { kind: "playerLeft"; username: string }
-  | { kind: "death" };
+  | { kind: "death" }
+  | { kind: "activity"; text: string };
