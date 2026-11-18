@@ -214,6 +214,12 @@ npm start`}
             title="React to join / leave / death"
             hint="The AI comments when a player joins or leaves, or the bot dies."
           />
+          <Toggle
+            value={config.narrateActivity}
+            onChange={(v) => update({ narrateActivity: v })}
+            title="Narrate what the bot is doing"
+            hint="The AI talks about its own gameplay (chopping trees, crafting, building...). Needs the bridge's autonomous mode."
+          />
         </div>
 
         {/* Bridge address */}
