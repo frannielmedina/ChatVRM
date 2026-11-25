@@ -5,6 +5,7 @@
 //   • BroadcastChannel                                                  → same browser (testing)
 // No API keys ever leave the control tab: only the finished TTS audio does.
 import type { Peer as PeerType, DataConnection } from "peerjs";
+import { PERMANENT_WIDGET_PEER_ID } from "./aikaPeerConfig";
 
 export type WidgetFrame =
   | { t: "show" }
@@ -32,20 +33,10 @@ export function normalizeFrame(f: WidgetFrame): WidgetFrame {
 }
 
 const BC_NAME = "chatvrm-aika-widget-v1";
-const PEER_ID_KEY = "chatVRM_aikaWidgetPeerId";
 
+/** Fixed on purpose: the widget URL is already saved in Aika's OBS. */
 export function getWidgetPeerId(): string {
-  try {
-    let id = window.localStorage.getItem(PEER_ID_KEY);
-    if (!id) {
-      id = "miko-" + Array.from(crypto.getRandomValues(new Uint8Array(10)))
-        .map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 16);
-      window.localStorage.setItem(PEER_ID_KEY, id);
-    }
-    return id;
-  } catch {
-    return "miko-fallback-" + Math.random().toString(36).slice(2, 10);
-  }
+  return PERMANENT_WIDGET_PEER_ID;
 }
 
 // ── Control-tab side ─────────────────────────────────────────────────────────
@@ -94,7 +85,16 @@ export class WidgetSender {
       conn.on("error", drop);
     });
     peer.on("disconnected", () => { try { peer.reconnect(); } catch {} });
-    peer.on("error", (e) => console.warn("[widgetBridge] peer error", e));
+    peer.on("error", (e: any) => {
+      console.warn("[widgetBridge] peer error", e);
+      // After a reload the broker may still hold the old registration of the
+      // permanent ID for a few seconds → retry until it is free again.
+      if (e?.type === "unavailable-id") {
+        try { peer.destroy(); } catch {}
+        this.peer = null;
+        setTimeout(() => { this.start().catch(() => {}); }, 5000);
+      }
+    });
   }
 
   send(frame: WidgetFrame) {

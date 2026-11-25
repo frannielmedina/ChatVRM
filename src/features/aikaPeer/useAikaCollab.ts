@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AikaPeerClient, PeerStatus, buildPeerUrl } from "./aikaPeerClient";
 import {
-  AikaPeerConfig, aikaMoodToExpression, emotionToAikaMood,
+  AikaPeerConfig, aikaMoodToExpression, emotionToAikaMood, PERMANENT_WIDGET_VRM_URL,
 } from "./aikaPeerConfig";
 import { WidgetSender, getWidgetPeerId } from "./widgetBridge";
 
@@ -201,10 +201,11 @@ export function useAikaCollab(config: AikaPeerConfig, generateLine: GenerateGues
     clearTimers();
   }, []);
 
+  // The link Samy already has in OBS: same peer, same VRM, forever.
   const widgetUrl = () => {
     const u = new URL("/aika-widget/", window.location.origin);
     u.searchParams.set("peer", getWidgetPeerId());
-    if (cfgRef.current.vrmUrl.trim()) u.searchParams.set("vrm", cfgRef.current.vrmUrl.trim());
+    u.searchParams.set("vrm", PERMANENT_WIDGET_VRM_URL);
     return u.toString();
   };
 

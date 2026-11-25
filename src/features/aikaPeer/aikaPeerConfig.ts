@@ -2,6 +2,10 @@
 // The token is a password. It lives ONLY in this browser's localStorage —
 // never hard-code it, never commit it, never put it in a widget URL.
 
+// ── Permanent widget link (already configured in Aika's OBS — do not change) ──
+export const PERMANENT_WIDGET_PEER_ID = "miko-6h6o2s0x4h51193j";
+export const PERMANENT_WIDGET_VRM_URL = "https://chat-vrm-orcin.vercel.app/miko.vrm";
+
 export type AikaMood =
   | "happy" | "sad" | "angry" | "surprised" | "embarrassed" | "mischievous"
   | "smug" | "pout" | "shy" | "excited" | "nervous" | "sleepy" | "neutral";
@@ -26,7 +30,7 @@ export const DEFAULT_AIKA_PEER_CONFIG: AikaPeerConfig = {
   testMode: true,
   autoSession: false,
   serverUrl: "wss://aika-core.samyserver.de/api/peer/ws",
-  vrmUrl: "",
+  vrmUrl: PERMANENT_WIDGET_VRM_URL,
   monitorLocally: false,
 };
 
