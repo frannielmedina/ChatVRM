@@ -46,11 +46,6 @@ export function AikaCollabPanel(p: Props) {
               onChange={(e) => set({ token: e.target.value })} placeholder="paste your private token" />
           </label>
 
-          <label className="block">Miko .vrm public URL (so Aika&apos;s OBS can load her)
-            <input className={input} value={p.config.vrmUrl}
-              onChange={(e) => set({ vrmUrl: e.target.value })} placeholder="https://…/miko.vrm" />
-          </label>
-
           <label className="flex items-center gap-8">
             <input type="checkbox" checked={p.config.testMode} onChange={(e) => set({ testMode: e.target.checked })} />
             Test mode (dry run — nothing reaches the stream)
