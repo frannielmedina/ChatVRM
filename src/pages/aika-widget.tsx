@@ -2,7 +2,7 @@
 // Aika loads this URL as an OBS browser source. It draws ONLY Miko on a fully
 // transparent canvas (no background image, no UI) and plays her TTS audio.
 //
-//   /aika-widget/?peer=<id>&vrm=<public .vrm URL>&view=full|close&zoom=1&shiftY=0
+//   /aika-widget/  (peer + vrm default to Miko's permanent values; ?peer= / ?vrm= still override)&view=full|close&zoom=1&shiftY=0
 //     view=full  (default) whole body, head to toe     view=close  head & shoulders
 //     zoom       0.3–3, >1 closer                       shiftY      world units, + moves view up
 //
@@ -10,7 +10,7 @@
 // ai_talk_start confirmation (the guide: never play audio before it).
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ViewerContext } from "@/features/vrmViewer/viewerContext";
-import { buildUrl } from "@/utils/buildUrl";
+import { PERMANENT_WIDGET_PEER_ID, PERMANENT_WIDGET_VRM_URL } from "@/features/aikaPeer/aikaPeerConfig";
 import { WidgetReceiver, WidgetFrame } from "@/features/aikaPeer/widgetBridge";
 import type { Screenplay } from "@/features/messages/messages";
 
@@ -52,7 +52,7 @@ export default function AikaWidget() {
         );
         viewer.setScreenShareFraming(true);
       }
-      viewer.loadVrm(params.get("vrm") || buildUrl("/AvatarSample_B.vrm"));
+      viewer.loadVrm(params.get("vrm") || PERMANENT_WIDGET_VRM_URL);
     },
     [viewer]
   );
@@ -78,7 +78,7 @@ export default function AikaWidget() {
   );
 
   useEffect(() => {
-    const peerId = new URLSearchParams(window.location.search).get("peer");
+    const peerId = new URLSearchParams(window.location.search).get("peer") || PERMANENT_WIDGET_PEER_ID;
     let loaded = false;
     const rx = new WidgetReceiver(peerId, handleFrame, () => { if (loaded) rx.sendReady(); });
     rx.start();

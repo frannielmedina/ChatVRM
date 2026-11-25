@@ -1043,14 +1043,6 @@ function Home() {
     });
 
     const eventUnsub = minecraftClient.onEvent((ev) => {
-      // The bridge's autonomous brain reports what the bot is doing (chopping, crafting, building...)
-      if (ev.kind === "activity") {
-        if (!minecraftConfigRef.current.narrateActivity) return;
-        enqueueMinecraft(
-          `[Minecraft activity] You are playing Minecraft on your own. What you are doing right now: "${ev.text}". Say one short sentence about it, in character.`
-        );
-        return;
-      }
       if (!minecraftConfigRef.current.reactToEvents) return;
       if (ev.kind === "playerJoined")
         enqueueMinecraft(`[Minecraft event] The player ${ev.username} just joined the Minecraft server. Greet them briefly.`);
